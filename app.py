@@ -7,9 +7,11 @@ import time
 import json
 from pathlib import Path
 from PIL import Image
-from dotenv import load_dotenv
-
-load_dotenv()
+try:
+    from dotenv import load_dotenv
+    load_dotenv()
+except ImportError:
+    pass
 
 st.set_page_config(
     page_title="JewelBench - Mix & Match Designer",
