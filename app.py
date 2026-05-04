@@ -599,7 +599,7 @@ for i in range(num_images):
         )
 
         if uploaded:
-            st.image(uploaded, use_container_width=True)
+            st.image(uploaded, width="stretch")
 
         desc = st.text_area(
             "Component to extract",
@@ -745,7 +745,7 @@ st.markdown("<br>", unsafe_allow_html=True)
 
 generate_clicked = st.button(
     "GENERATE COMBINED DESIGN",
-    use_container_width=True,
+    width="stretch",
     type="primary",
 )
 
@@ -799,7 +799,7 @@ if generate_clicked:
                         '<div class="result-card">',
                         unsafe_allow_html=True,
                     )
-                    st.image(url, use_container_width=True)
+                    st.image(url, width="stretch")
                     st.markdown(
                         f"""<div class="result-label">
                             <span>Variation {idx+1}</span>
@@ -833,7 +833,7 @@ if st.session_state.get("last_results"):
         label_visibility="collapsed",
     )
 
-    if st.button("REGENERATE WITH CHANGES", use_container_width=True):
+    if st.button("REGENERATE WITH CHANGES", width="stretch"):
         if not refinement:
             st.warning("Describe what to change before regenerating.")
         else:
@@ -851,7 +851,7 @@ if st.session_state.get("last_results"):
                         """, unsafe_allow_html=True)
                         col1, col2, col3 = st.columns([1, 2, 1])
                         with col2:
-                            st.image(url, use_container_width=True)
+                            st.image(url, width="stretch")
                             st.markdown(
                                 f'<div style="text-align:center;margin-top:8px;">'
                                 f'<a href="{url}" target="_blank" '
