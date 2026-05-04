@@ -13,8 +13,20 @@ try:
 except ImportError:
     pass
 
-if "FAL_KEY" in st.secrets:
-    os.environ["FAL_KEY"] = st.secrets["FAL_KEY"]
+# Load FAL_KEY from all possible sources
+try:
+    if hasattr(st, "secrets") and "FAL_KEY" in st.secrets:
+        os.environ["FAL_KEY"] = st.secrets["FAL_KEY"]
+except Exception:
+    pass
+
+if not os.environ.get("FAL_KEY"):
+    try:
+        fal_key = st.secrets.get("FAL_KEY", "")
+        if fal_key:
+            os.environ["FAL_KEY"] = fal_key
+    except Exception:
+        pass
 
 st.set_page_config(
     page_title="JewelBench - Mix & Match Designer",
@@ -519,6 +531,13 @@ def extract_image_url(result):
         return result["image"].get("url")
     return None
 
+
+# --- KEY CHECK ---
+if not os.environ.get("FAL_KEY"):
+    st.error(
+        "**FAL_KEY not found.** Add it in Streamlit Cloud: "
+        "Manage app > Settings > Secrets > add `FAL_KEY = \"your-key\"`"
+    )
 
 # --- HEADER ---
 st.markdown("""
