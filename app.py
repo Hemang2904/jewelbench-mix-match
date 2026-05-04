@@ -403,36 +403,78 @@ def upload_to_fal(uploaded_file):
     return fal_client.upload(img_bytes, content_type=uploaded_file.type or "image/png")
 
 
-def build_combination_prompt(image_specs, additional_specs):
-    parts = []
-    for i, spec in enumerate(image_specs):
-        if spec["file"] and spec["description"]:
-            parts.append(f"From reference image {i+1}: use the {spec['description']}")
+def upload_pil_to_fal(pil_image):
+    buf = io.BytesIO()
+    pil_image.save(buf, format="PNG")
+    buf.seek(0)
+    return fal_client.upload(buf.getvalue(), content_type="image/png")
 
-    combination = ". ".join(parts)
+
+def analyze_image_with_gemini(image_url, component_description):
+    """Use Gemini via fal.ai to deeply analyze a jewelry image component."""
+    prompt = f"""You are an expert jewelry designer. Analyze this jewelry image in extreme detail.
+
+The user wants to extract the **{component_description}** from this piece.
+
+Describe ONLY the "{component_description}" in vivid, precise visual detail:
+- Exact shape, curves, proportions, thickness
+- Metal color, finish (polished/brushed/matte/hammered)
+- Any engravings, milgrain, pave, filigree, or textures
+- How stones are set (prong, bezel, channel, pave)
+- Stone shapes, sizes, arrangement pattern
+- How this component connects to other parts
+- Any unique design features
+
+Write 3-5 sentences of pure visual description. No measurements. No opinions. Just describe what you SEE."""
+
+    result = fal_client.subscribe(
+        "fal-ai/any-llm",
+        arguments={
+            "model": "google/gemini-flash-1.5",
+            "prompt": prompt,
+            "image_url": image_url,
+            "max_tokens": 512,
+        },
+    )
+    return result.get("output", "")
+
+
+def build_smart_prompt(analyses, additional_specs):
+    """Build an expert combination prompt from Gemini's image analyses."""
+    component_descriptions = []
+    for analysis in analyses:
+        if analysis["analysis"]:
+            component_descriptions.append(
+                f"The {analysis['component']} should look like: {analysis['analysis']}"
+            )
+
+    combined = " ".join(component_descriptions)
 
     prompt = (
-        f"Professional jewelry product photograph, studio lighting, white background. "
-        f"Create a single cohesive jewelry piece by combining: {combination}. "
+        f"Professional jewelry product photograph, perfectly centered, studio lighting, "
+        f"pure white background. Generate a SINGLE cohesive jewelry piece that combines "
+        f"these specific design elements into one unified design: {combined}"
     )
 
     if additional_specs.get("metal"):
-        prompt += f"Metal: {additional_specs['metal']}. "
-    if additional_specs.get("dimensions"):
-        prompt += f"Specifications: {additional_specs['dimensions']}. "
+        prompt += f" The metal is {additional_specs['metal']}."
     if additional_specs.get("stones"):
-        prompt += f"Stone details: {additional_specs['stones']}. "
+        prompt += f" Stone details: {additional_specs['stones']}."
+    if additional_specs.get("dimensions"):
+        prompt += f" Proportions: {additional_specs['dimensions']}."
     if additional_specs.get("notes"):
-        prompt += f"Additional details: {additional_specs['notes']}. "
+        prompt += f" {additional_specs['notes']}."
 
     prompt += (
-        "Photorealistic render, 8K quality, jewelry catalog style, "
-        "sharp focus on details, professional product photography."
+        " Photorealistic render, 8K, macro jewelry photography, "
+        "sharp focus on every detail, no background elements, no hands, "
+        "catalog-quality product shot."
     )
     return prompt
 
 
-def generate_with_flux_kontext(image_specs, prompt):
+def generate_combined_design(image_specs, smart_prompt, variation_seed=0):
+    """Multi-strategy generation: tries FLUX Kontext from each image perspective + OmniGen."""
     image_urls = []
     for spec in image_specs:
         if spec["file"]:
@@ -441,82 +483,56 @@ def generate_with_flux_kontext(image_specs, prompt):
     if not image_urls:
         return None
 
-    return fal_client.subscribe(
-        "fal-ai/flux-pro/kontext/max",
-        arguments={
-            "image_url": image_urls[0],
-            "prompt": prompt,
-            "num_images": 1,
-            "guidance_scale": 7.5,
-            "output_format": "png",
-            "safety_tolerance": 5,
-        },
-    )
+    strategies = []
 
+    # Strategy 1: FLUX Kontext from image 1's perspective
+    strategies.append({
+        "name": "flux_from_img1",
+        "fn": lambda: fal_client.subscribe(
+            "fal-ai/flux-pro/kontext/max",
+            arguments={
+                "image_url": image_urls[0],
+                "prompt": f"Transform this jewelry piece: {smart_prompt}",
+                "num_images": 1,
+                "output_format": "png",
+                "safety_tolerance": 5,
+                "seed": variation_seed or None,
+            },
+        ),
+    })
 
-def generate_with_omnigen(image_specs, prompt):
-    image_urls = []
-    tagged_prompt = prompt
-    for i, spec in enumerate(image_specs):
-        if spec["file"]:
-            url = upload_to_fal(spec["file"])
-            image_urls.append(url)
-            tagged_prompt = tagged_prompt.replace(
-                f"reference image {i+1}", f"<img><|image_{i+1}|></img>"
-            )
+    # Strategy 2: FLUX Kontext from image 2's perspective (if available)
+    if len(image_urls) > 1:
+        strategies.append({
+            "name": "flux_from_img2",
+            "fn": lambda: fal_client.subscribe(
+                "fal-ai/flux-pro/kontext/max",
+                arguments={
+                    "image_url": image_urls[1],
+                    "prompt": f"Transform this jewelry piece: {smart_prompt}",
+                    "num_images": 1,
+                    "output_format": "png",
+                    "safety_tolerance": 5,
+                    "seed": (variation_seed + 42) or None,
+                },
+            ),
+        })
 
-    return fal_client.subscribe(
-        "fal-ai/omnigen-v1",
-        arguments={
-            "prompt": tagged_prompt,
-            "input_image_urls": image_urls,
-            "num_images": 1,
-            "guidance_scale": 3.0,
-            "seed": int(time.time()) % 100000,
-        },
-    )
+    # Strategy 3: Ideogram remix from image 1
+    strategies.append({
+        "name": "ideogram_remix",
+        "fn": lambda: fal_client.subscribe(
+            "fal-ai/ideogram/v2/remix",
+            arguments={
+                "image_url": image_urls[0],
+                "prompt": smart_prompt,
+                "num_images": 1,
+                "magic_prompt_option": "AUTO",
+            },
+        ),
+    })
 
-
-def generate_with_ideogram(image_specs, prompt):
-    image_urls = []
-    for spec in image_specs:
-        if spec["file"]:
-            image_urls.append(upload_to_fal(spec["file"]))
-
-    if not image_urls:
-        return None
-
-    return fal_client.subscribe(
-        "fal-ai/ideogram/v2/remix",
-        arguments={
-            "image_url": image_urls[0],
-            "prompt": prompt,
-            "num_images": 1,
-            "magic_prompt_option": "AUTO",
-        },
-    )
-
-
-GENERATORS = {
-    "flux_kontext": {
-        "fn": generate_with_flux_kontext,
-        "name": "FLUX Kontext Max",
-        "desc": "Best for single-reference style transfer & edits",
-        "tag": "RECOMMENDED",
-    },
-    "omnigen": {
-        "fn": generate_with_omnigen,
-        "name": "OmniGen",
-        "desc": "Multi-image composition with tagged references",
-        "tag": "MULTI-IMAGE",
-    },
-    "ideogram": {
-        "fn": generate_with_ideogram,
-        "name": "Ideogram v2",
-        "desc": "High quality remix with magic prompt enhancement",
-        "tag": "HD QUALITY",
-    },
-}
+    return strategies
 
 
 def extract_image_url(result):
@@ -710,58 +726,11 @@ additional_specs = {
 }
 
 
-# --- MODEL SELECTION ---
+# --- HOW IT WORKS ---
 st.markdown("""
-<div class="section-title">AI Engine</div>
-<div class="section-subtitle">Choose the generation model that best fits your use case</div>
+<div class="section-title">AI Pipeline</div>
+<div class="section-subtitle">Step 1: Gemini analyzes each image component in detail. Step 2: A precise combination prompt is built. Step 3: Multiple AI models render the combined design from different perspectives.</div>
 """, unsafe_allow_html=True)
-
-model_cols = st.columns(3, gap="medium")
-model_keys = list(GENERATORS.keys())
-
-for idx, key in enumerate(model_keys):
-    m = GENERATORS[key]
-    with model_cols[idx]:
-        tag_color = {
-            "RECOMMENDED": "rgba(201,168,76,0.15)",
-            "MULTI-IMAGE": "rgba(124,58,237,0.15)",
-            "HD QUALITY": "rgba(74,108,247,0.15)",
-        }.get(m["tag"], "rgba(201,168,76,0.15)")
-        tag_text_color = {
-            "RECOMMENDED": "var(--gold)",
-            "MULTI-IMAGE": "#A78BFA",
-            "HD QUALITY": "#818CF8",
-        }.get(m["tag"], "var(--gold)")
-
-        st.markdown(f"""
-        <div class="model-card">
-            <div class="model-name">{m['name']}</div>
-            <div class="model-desc">{m['desc']}</div>
-            <span style="display:inline-block;background:{tag_color};color:{tag_text_color};
-                padding:2px 10px;border-radius:4px;font-size:0.7rem;font-weight:700;margin-top:8px;
-                letter-spacing:1px;">
-                {m['tag']}
-            </span>
-        </div>
-        """, unsafe_allow_html=True)
-
-model_choice = st.selectbox(
-    "Select engine",
-    model_keys,
-    format_func=lambda k: GENERATORS[k]["name"],
-    label_visibility="collapsed",
-)
-
-# --- GENERATION CONTROLS ---
-st.markdown("<br>", unsafe_allow_html=True)
-
-ctrl_col1, ctrl_col2 = st.columns([1, 1])
-with ctrl_col1:
-    num_variations = st.slider(
-        "Variations",
-        min_value=1, max_value=4, value=2,
-        help="Number of design variations to generate",
-    )
 
 st.markdown("<br>", unsafe_allow_html=True)
 
@@ -772,37 +741,72 @@ generate_clicked = st.button(
 )
 
 if generate_clicked:
-    has_images = any(s["file"] for s in image_specs)
-    has_descriptions = any(s["description"] for s in image_specs)
+    has_images = sum(1 for s in image_specs if s["file"]) >= 2
+    has_descriptions = sum(1 for s in image_specs if s["description"]) >= 2
 
     if not has_images:
-        st.error("Upload at least one reference image to continue.")
+        st.error("Upload at least 2 reference images to combine.")
     elif not has_descriptions:
-        st.warning("Describe what component to use from at least one image.")
+        st.warning("Describe what component to use from each image.")
     else:
-        prompt = build_combination_prompt(image_specs, additional_specs)
+        # PHASE 1: Analyze each image with Gemini
+        progress = st.progress(0, text="Phase 1/3: Analyzing images with Gemini...")
+        analyses = []
+        uploaded_urls = []
 
-        with st.expander("View Generated Prompt", expanded=False):
-            st.code(prompt, language="text")
+        for i, spec in enumerate(image_specs):
+            if spec["file"] and spec["description"]:
+                progress.progress(
+                    (i + 1) / (len(image_specs) * 3),
+                    text=f"Phase 1/3: Analyzing image {i+1} — {spec['description']}...",
+                )
+                url = upload_to_fal(spec["file"])
+                uploaded_urls.append(url)
+                try:
+                    analysis = analyze_image_with_gemini(url, spec["description"])
+                    analyses.append({
+                        "component": spec["description"],
+                        "analysis": analysis,
+                        "url": url,
+                    })
+                except Exception as e:
+                    st.warning(f"Image {i+1} analysis failed: {e}. Using your description instead.")
+                    analyses.append({
+                        "component": spec["description"],
+                        "analysis": spec["description"],
+                        "url": url,
+                    })
 
-        generator_fn = GENERATORS[model_choice]["fn"]
+        # PHASE 2: Build smart combination prompt
+        progress.progress(0.4, text="Phase 2/3: Building expert combination prompt...")
+        smart_prompt = build_smart_prompt(analyses, additional_specs)
+
+        with st.expander("Gemini Analysis & Combined Prompt", expanded=False):
+            for a in analyses:
+                st.markdown(f"**{a['component']}:** {a['analysis']}")
+            st.markdown("---")
+            st.code(smart_prompt, language="text")
+
+        # PHASE 3: Generate from multiple perspectives
+        progress.progress(0.5, text="Phase 3/3: Generating designs from multiple perspectives...")
+        strategies = generate_combined_design(image_specs, smart_prompt)
         results = []
+        strategy_names = []
 
-        progress = st.progress(0, text="Initializing AI engine...")
-        time.sleep(0.3)
-
-        for v in range(num_variations):
-            progress.progress(
-                v / num_variations,
-                text=f"Rendering variation {v+1} of {num_variations}...",
-            )
-            try:
-                result = generator_fn(image_specs, prompt)
-                url = extract_image_url(result)
-                if url:
-                    results.append(url)
-            except Exception as e:
-                st.error(f"Variation {v+1} failed: {str(e)}")
+        if strategies:
+            for si, strategy in enumerate(strategies):
+                progress.progress(
+                    0.5 + (si + 1) / (len(strategies) * 2),
+                    text=f"Phase 3/3: Rendering perspective {si+1}/{len(strategies)} ({strategy['name']})...",
+                )
+                try:
+                    result = strategy["fn"]()
+                    url = extract_image_url(result)
+                    if url:
+                        results.append(url)
+                        strategy_names.append(strategy["name"])
+                except Exception as e:
+                    st.warning(f"Strategy '{strategy['name']}' failed: {e}")
 
         progress.progress(1.0, text="Generation complete")
         time.sleep(0.5)
@@ -811,32 +815,37 @@ if generate_clicked:
         if results:
             st.markdown("""
             <div class="section-title">Generated Designs</div>
-            <div class="section-subtitle">Click to expand, download, or refine any variation</div>
+            <div class="section-subtitle">Each variation is rendered from a different reference perspective for maximum diversity</div>
             """, unsafe_allow_html=True)
 
             result_cols = st.columns(min(len(results), 4), gap="medium")
             for idx, url in enumerate(results):
+                label = strategy_names[idx] if idx < len(strategy_names) else f"Var {idx+1}"
+                label_display = {
+                    "flux_from_img1": "Based on Image 1",
+                    "flux_from_img2": "Based on Image 2",
+                    "ideogram_remix": "Ideogram Remix",
+                }.get(label, label)
+
                 with result_cols[idx % len(result_cols)]:
-                    st.markdown(
-                        '<div class="result-card">',
-                        unsafe_allow_html=True,
-                    )
+                    st.markdown('<div class="result-card">', unsafe_allow_html=True)
                     st.image(url, width="stretch")
                     st.markdown(
                         f"""<div class="result-label">
-                            <span>Variation {idx+1}</span>
+                            <span>{label_display}</span>
                             <a href="{url}" target="_blank"
                                style="color:var(--gold);text-decoration:none;font-size:0.8rem;font-weight:600;">
-                                Download ↗
+                                Download
                             </a>
                         </div></div>""",
                         unsafe_allow_html=True,
                     )
 
             st.session_state["last_results"] = results
-            st.session_state["last_prompt"] = prompt
+            st.session_state["last_prompt"] = smart_prompt
+            st.session_state["last_analyses"] = analyses
         else:
-            st.error("No images were generated. Please try a different model or prompt.")
+            st.error("No images were generated. Check your FAL_KEY and try again.")
 
 
 # --- REFINEMENT SECTION ---
@@ -861,16 +870,27 @@ if st.session_state.get("last_results"):
         else:
             base_prompt = st.session_state["last_prompt"]
             refined_prompt = f"{base_prompt} Modifications: {refinement}"
-            generator_fn = GENERATORS[model_choice]["fn"]
+
+            image_urls = []
+            for spec in image_specs:
+                if spec["file"]:
+                    image_urls.append(upload_to_fal(spec["file"]))
 
             with st.spinner("Regenerating with modifications..."):
                 try:
-                    result = generator_fn(image_specs, refined_prompt)
+                    result = fal_client.subscribe(
+                        "fal-ai/flux-pro/kontext/max",
+                        arguments={
+                            "image_url": image_urls[0] if image_urls else "",
+                            "prompt": f"Transform this jewelry piece: {refined_prompt}",
+                            "num_images": 1,
+                            "output_format": "png",
+                            "safety_tolerance": 5,
+                        },
+                    )
                     url = extract_image_url(result)
                     if url:
-                        st.markdown("""
-                        <div class="section-title">Refined Design</div>
-                        """, unsafe_allow_html=True)
+                        st.markdown('<div class="section-title">Refined Design</div>', unsafe_allow_html=True)
                         col1, col2, col3 = st.columns([1, 2, 1])
                         with col2:
                             st.image(url, width="stretch")
@@ -878,7 +898,7 @@ if st.session_state.get("last_results"):
                                 f'<div style="text-align:center;margin-top:8px;">'
                                 f'<a href="{url}" target="_blank" '
                                 f'style="color:var(--gold);font-weight:600;text-decoration:none;">'
-                                f'Download Full Resolution ↗</a></div>',
+                                f'Download Full Resolution</a></div>',
                                 unsafe_allow_html=True,
                             )
                 except Exception as e:
