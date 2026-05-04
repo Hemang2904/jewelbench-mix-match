@@ -13,6 +13,9 @@ try:
 except ImportError:
     pass
 
+if "FAL_KEY" in st.secrets:
+    os.environ["FAL_KEY"] = st.secrets["FAL_KEY"]
+
 st.set_page_config(
     page_title="JewelBench - Mix & Match Designer",
     page_icon="💎",
