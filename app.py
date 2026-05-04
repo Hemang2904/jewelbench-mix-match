@@ -410,128 +410,152 @@ def upload_pil_to_fal(pil_image):
     return fal_client.upload(buf.getvalue(), content_type="image/png")
 
 
-def analyze_image_with_gemini(image_url, component_description):
-    """Use Gemini via fal.ai to deeply analyze a jewelry image component."""
-    prompt = f"""You are an expert jewelry designer. Analyze this jewelry image in extreme detail.
+def create_composite_image(image_specs):
+    """Stitch all reference images side-by-side into one composite."""
+    pil_images = []
+    for spec in image_specs:
+        if spec["file"]:
+            img = Image.open(spec["file"])
+            img = img.convert("RGB")
+            img.thumbnail((768, 768), Image.LANCZOS)
+            pil_images.append(img)
 
-The user wants to extract the **{component_description}** from this piece.
+    if not pil_images:
+        return None
 
-Describe ONLY the "{component_description}" in vivid, precise visual detail:
-- Exact shape, curves, proportions, thickness
-- Metal color, finish (polished/brushed/matte/hammered)
-- Any engravings, milgrain, pave, filigree, or textures
-- How stones are set (prong, bezel, channel, pave)
-- Stone shapes, sizes, arrangement pattern
-- How this component connects to other parts
-- Any unique design features
+    target_h = max(img.height for img in pil_images)
+    resized = []
+    for img in pil_images:
+        ratio = target_h / img.height
+        new_w = int(img.width * ratio)
+        resized.append(img.resize((new_w, target_h), Image.LANCZOS))
 
-Write 3-5 sentences of pure visual description. No measurements. No opinions. Just describe what you SEE."""
+    gap = 20
+    total_w = sum(img.width for img in resized) + gap * (len(resized) - 1)
+    composite = Image.new("RGB", (total_w, target_h), (255, 255, 255))
+
+    x_offset = 0
+    for img in resized:
+        composite.paste(img, (x_offset, 0))
+        x_offset += img.width + gap
+
+    return composite
+
+
+def analyze_images_with_ai(composite_url, image_specs):
+    """Analyze the composite image and understand what to combine using Claude Opus 4.7."""
+    descriptions = []
+    positions = ["left", "center-left", "center", "center-right", "right"]
+    active_specs = [s for s in image_specs if s["file"] and s["description"]]
+
+    for i, spec in enumerate(active_specs):
+        pos = positions[i] if len(active_specs) > 2 else ("left" if i == 0 else "right")
+        descriptions.append(f"The {pos} jewelry piece: extract its {spec['description']}")
+
+    spec_text = ". ".join(descriptions)
+
+    prompt = f"""You are an expert jewelry designer looking at a composite image showing multiple jewelry pieces side by side.
+
+{spec_text}.
+
+Describe in vivid detail what the FINAL COMBINED piece should look like — a single new jewelry piece that takes the specified component from each reference:
+- Describe the overall form and silhouette
+- Describe each component's appearance (metal finish, texture, stone settings, decorative elements)
+- Explain how the components connect seamlessly
+- Describe the metal color and finish transitions
+
+Write one detailed paragraph (100-150 words) describing this combined jewelry piece as if it already exists. Start with the jewelry type (ring, pendant, etc.)."""
 
     result = fal_client.subscribe(
         "fal-ai/any-llm",
         arguments={
-            "model": "google/gemini-flash-1.5",
+            "model": "anthropic/claude-opus-4-7",
             "prompt": prompt,
-            "image_url": image_url,
+            "image_url": composite_url,
             "max_tokens": 512,
         },
     )
     return result.get("output", "")
 
 
-def build_smart_prompt(analyses, additional_specs):
-    """Build an expert combination prompt from Gemini's image analyses."""
-    component_descriptions = []
-    for analysis in analyses:
-        if analysis["analysis"]:
-            component_descriptions.append(
-                f"The {analysis['component']} should look like: {analysis['analysis']}"
-            )
+def build_kontext_prompt(ai_description, image_specs, additional_specs):
+    """Build the FLUX Kontext prompt that references the composite image."""
+    active_specs = [s for s in image_specs if s["file"] and s["description"]]
+    positions = ["left", "center-left", "center", "center-right", "right"]
 
-    combined = " ".join(component_descriptions)
+    ref_instructions = []
+    for i, spec in enumerate(active_specs):
+        pos = positions[i] if len(active_specs) > 2 else ("left" if i == 0 else "right")
+        ref_instructions.append(f"the {spec['description']} from the {pos} piece")
+
+    ref_text = " and ".join(ref_instructions)
 
     prompt = (
-        f"Professional jewelry product photograph, perfectly centered, studio lighting, "
-        f"pure white background. Generate a SINGLE cohesive jewelry piece that combines "
-        f"these specific design elements into one unified design: {combined}"
+        f"This image shows multiple jewelry reference pieces side by side. "
+        f"Create a NEW single jewelry piece that combines {ref_text}. "
+        f"The result should be: {ai_description} "
     )
 
     if additional_specs.get("metal"):
-        prompt += f" The metal is {additional_specs['metal']}."
+        prompt += f"Metal: {additional_specs['metal']}. "
     if additional_specs.get("stones"):
-        prompt += f" Stone details: {additional_specs['stones']}."
+        prompt += f"Stones: {additional_specs['stones']}. "
     if additional_specs.get("dimensions"):
-        prompt += f" Proportions: {additional_specs['dimensions']}."
+        prompt += f"Proportions: {additional_specs['dimensions']}. "
     if additional_specs.get("notes"):
-        prompt += f" {additional_specs['notes']}."
+        prompt += f"{additional_specs['notes']}. "
 
     prompt += (
-        " Photorealistic render, 8K, macro jewelry photography, "
-        "sharp focus on every detail, no background elements, no hands, "
-        "catalog-quality product shot."
+        "Output ONLY the single combined piece on a pure white background. "
+        "Professional jewelry product photography, 8K, sharp macro detail, "
+        "catalog-quality, centered, no hands or props."
     )
     return prompt
 
 
-def generate_combined_design(image_specs, smart_prompt, variation_seed=0):
-    """Multi-strategy generation: tries FLUX Kontext from each image perspective + OmniGen."""
-    image_urls = []
-    for spec in image_specs:
-        if spec["file"]:
-            image_urls.append(upload_to_fal(spec["file"]))
-
-    if not image_urls:
-        return None
-
-    strategies = []
-
-    # Strategy 1: FLUX Kontext from image 1's perspective
-    strategies.append({
-        "name": "flux_from_img1",
-        "fn": lambda: fal_client.subscribe(
-            "fal-ai/flux-pro/kontext/max",
-            arguments={
-                "image_url": image_urls[0],
-                "prompt": f"Transform this jewelry piece: {smart_prompt}",
-                "num_images": 1,
-                "output_format": "png",
-                "safety_tolerance": 5,
-                "seed": variation_seed or None,
-            },
-        ),
-    })
-
-    # Strategy 2: FLUX Kontext from image 2's perspective (if available)
-    if len(image_urls) > 1:
-        strategies.append({
-            "name": "flux_from_img2",
+def generate_combined_design(composite_url, kontext_prompt):
+    """Generate from the composite image using multiple strategies."""
+    strategies = [
+        {
+            "name": "FLUX Kontext (variation A)",
             "fn": lambda: fal_client.subscribe(
                 "fal-ai/flux-pro/kontext/max",
                 arguments={
-                    "image_url": image_urls[1],
-                    "prompt": f"Transform this jewelry piece: {smart_prompt}",
+                    "image_url": composite_url,
+                    "prompt": kontext_prompt,
                     "num_images": 1,
                     "output_format": "png",
                     "safety_tolerance": 5,
-                    "seed": (variation_seed + 42) or None,
                 },
             ),
-        })
-
-    # Strategy 3: Ideogram remix from image 1
-    strategies.append({
-        "name": "ideogram_remix",
-        "fn": lambda: fal_client.subscribe(
-            "fal-ai/ideogram/v2/remix",
-            arguments={
-                "image_url": image_urls[0],
-                "prompt": smart_prompt,
-                "num_images": 1,
-                "magic_prompt_option": "AUTO",
-            },
-        ),
-    })
-
+        },
+        {
+            "name": "FLUX Kontext (variation B)",
+            "fn": lambda: fal_client.subscribe(
+                "fal-ai/flux-pro/kontext/max",
+                arguments={
+                    "image_url": composite_url,
+                    "prompt": kontext_prompt,
+                    "num_images": 1,
+                    "output_format": "png",
+                    "safety_tolerance": 5,
+                    "seed": 77777,
+                },
+            ),
+        },
+        {
+            "name": "Ideogram Remix",
+            "fn": lambda: fal_client.subscribe(
+                "fal-ai/ideogram/v2/remix",
+                arguments={
+                    "image_url": composite_url,
+                    "prompt": kontext_prompt,
+                    "num_images": 1,
+                    "magic_prompt_option": "AUTO",
+                },
+            ),
+        },
+    ]
     return strategies
 
 
@@ -729,7 +753,7 @@ additional_specs = {
 # --- HOW IT WORKS ---
 st.markdown("""
 <div class="section-title">AI Pipeline</div>
-<div class="section-subtitle">Step 1: Gemini analyzes each image component in detail. Step 2: A precise combination prompt is built. Step 3: Multiple AI models render the combined design from different perspectives.</div>
+<div class="section-subtitle">Step 1: Claude Opus 4.7 analyzes each image component in detail. Step 2: A precise combination prompt is built. Step 3: Multiple AI models render the combined design from different perspectives.</div>
 """, unsafe_allow_html=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
@@ -749,47 +773,44 @@ if generate_clicked:
     elif not has_descriptions:
         st.warning("Describe what component to use from each image.")
     else:
-        # PHASE 1: Analyze each image with Gemini
-        progress = st.progress(0, text="Phase 1/3: Analyzing images with Gemini...")
-        analyses = []
-        uploaded_urls = []
+        progress = st.progress(0, text="Phase 1/4: Stitching reference images...")
 
-        for i, spec in enumerate(image_specs):
-            if spec["file"] and spec["description"]:
-                progress.progress(
-                    (i + 1) / (len(image_specs) * 3),
-                    text=f"Phase 1/3: Analyzing image {i+1} — {spec['description']}...",
-                )
-                url = upload_to_fal(spec["file"])
-                uploaded_urls.append(url)
-                try:
-                    analysis = analyze_image_with_gemini(url, spec["description"])
-                    analyses.append({
-                        "component": spec["description"],
-                        "analysis": analysis,
-                        "url": url,
-                    })
-                except Exception as e:
-                    st.warning(f"Image {i+1} analysis failed: {e}. Using your description instead.")
-                    analyses.append({
-                        "component": spec["description"],
-                        "analysis": spec["description"],
-                        "url": url,
-                    })
+        # PHASE 1: Create composite image
+        composite = create_composite_image(image_specs)
+        if composite is None:
+            st.error("Failed to create composite image.")
+            st.stop()
 
-        # PHASE 2: Build smart combination prompt
-        progress.progress(0.4, text="Phase 2/3: Building expert combination prompt...")
-        smart_prompt = build_smart_prompt(analyses, additional_specs)
+        progress.progress(0.15, text="Phase 1/4: Uploading composite to fal.ai...")
+        composite_url = upload_pil_to_fal(composite)
 
-        with st.expander("Gemini Analysis & Combined Prompt", expanded=False):
-            for a in analyses:
-                st.markdown(f"**{a['component']}:** {a['analysis']}")
+        st.markdown('<div class="section-title">Composite Reference</div>', unsafe_allow_html=True)
+        st.image(composite, caption="Side-by-side reference sent to AI", width="stretch")
+
+        # PHASE 2: Claude Opus analyzes the composite
+        progress.progress(0.25, text="Phase 2/4: Claude Opus analyzing combined reference...")
+        try:
+            ai_description = analyze_images_with_ai(composite_url, image_specs)
+        except Exception as e:
+            st.warning(f"Claude analysis failed: {e}. Using manual descriptions.")
+            parts = []
+            for spec in image_specs:
+                if spec["file"] and spec["description"]:
+                    parts.append(spec["description"])
+            ai_description = "A jewelry piece combining: " + ", ".join(parts)
+
+        # PHASE 3: Build the combination prompt
+        progress.progress(0.4, text="Phase 3/4: Building expert combination prompt...")
+        kontext_prompt = build_kontext_prompt(ai_description, image_specs, additional_specs)
+
+        with st.expander("Claude Opus Analysis & Generation Prompt", expanded=False):
+            st.markdown(f"**Claude Opus Description:** {ai_description}")
             st.markdown("---")
-            st.code(smart_prompt, language="text")
+            st.code(kontext_prompt, language="text")
 
-        # PHASE 3: Generate from multiple perspectives
-        progress.progress(0.5, text="Phase 3/3: Generating designs from multiple perspectives...")
-        strategies = generate_combined_design(image_specs, smart_prompt)
+        # PHASE 4: Generate designs from the composite
+        progress.progress(0.5, text="Phase 4/4: Generating designs from composite...")
+        strategies = generate_combined_design(composite_url, kontext_prompt)
         results = []
         strategy_names = []
 
@@ -797,7 +818,7 @@ if generate_clicked:
             for si, strategy in enumerate(strategies):
                 progress.progress(
                     0.5 + (si + 1) / (len(strategies) * 2),
-                    text=f"Phase 3/3: Rendering perspective {si+1}/{len(strategies)} ({strategy['name']})...",
+                    text=f"Phase 4/4: Rendering variation {si+1}/{len(strategies)} ({strategy['name']})...",
                 )
                 try:
                     result = strategy["fn"]()
@@ -815,24 +836,19 @@ if generate_clicked:
         if results:
             st.markdown("""
             <div class="section-title">Generated Designs</div>
-            <div class="section-subtitle">Each variation is rendered from a different reference perspective for maximum diversity</div>
+            <div class="section-subtitle">Each variation combines your reference images into a single new piece</div>
             """, unsafe_allow_html=True)
 
             result_cols = st.columns(min(len(results), 4), gap="medium")
             for idx, url in enumerate(results):
                 label = strategy_names[idx] if idx < len(strategy_names) else f"Var {idx+1}"
-                label_display = {
-                    "flux_from_img1": "Based on Image 1",
-                    "flux_from_img2": "Based on Image 2",
-                    "ideogram_remix": "Ideogram Remix",
-                }.get(label, label)
 
                 with result_cols[idx % len(result_cols)]:
                     st.markdown('<div class="result-card">', unsafe_allow_html=True)
                     st.image(url, width="stretch")
                     st.markdown(
                         f"""<div class="result-label">
-                            <span>{label_display}</span>
+                            <span>{label}</span>
                             <a href="{url}" target="_blank"
                                style="color:var(--gold);text-decoration:none;font-size:0.8rem;font-weight:600;">
                                 Download
@@ -842,8 +858,8 @@ if generate_clicked:
                     )
 
             st.session_state["last_results"] = results
-            st.session_state["last_prompt"] = smart_prompt
-            st.session_state["last_analyses"] = analyses
+            st.session_state["last_prompt"] = kontext_prompt
+            st.session_state["last_analyses"] = ai_description
         else:
             st.error("No images were generated. Check your FAL_KEY and try again.")
 
