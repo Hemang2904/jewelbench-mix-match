@@ -457,7 +457,7 @@ def generate_with_omnigen(image_specs, prompt):
         "fal-ai/omnigen-v1",
         arguments={
             "prompt": tagged_prompt,
-            "input_images": [{"url": url} for url in image_urls],
+            "input_image_urls": image_urls,
             "num_images": 1,
             "guidance_scale": 3.0,
             "seed": int(time.time()) % 100000,
@@ -475,7 +475,7 @@ def generate_with_ideogram(image_specs, prompt):
         return None
 
     return fal_client.subscribe(
-        "fal-ai/ideogram/v2/edit",
+        "fal-ai/ideogram/v2/remix",
         arguments={
             "image_url": image_urls[0],
             "prompt": prompt,
