@@ -1,12 +1,7 @@
 import streamlit as st
 import fal_client
-import base64
-import io
 import os
 import time
-import json
-from pathlib import Path
-from PIL import Image
 try:
     from dotenv import load_dotenv
     load_dotenv()
@@ -403,97 +398,20 @@ def upload_to_fal(uploaded_file):
     return fal_client.upload(img_bytes, content_type=uploaded_file.type or "image/png")
 
 
-def upload_pil_to_fal(pil_image):
-    buf = io.BytesIO()
-    pil_image.save(buf, format="PNG")
-    buf.seek(0)
-    return fal_client.upload(buf.getvalue(), content_type="image/png")
-
-
-def create_composite_image(image_specs):
-    """Stitch all reference images side-by-side into one composite."""
-    pil_images = []
-    for spec in image_specs:
-        if spec["file"]:
-            img = Image.open(spec["file"])
-            img = img.convert("RGB")
-            img.thumbnail((768, 768), Image.LANCZOS)
-            pil_images.append(img)
-
-    if not pil_images:
-        return None
-
-    target_h = max(img.height for img in pil_images)
-    resized = []
-    for img in pil_images:
-        ratio = target_h / img.height
-        new_w = int(img.width * ratio)
-        resized.append(img.resize((new_w, target_h), Image.LANCZOS))
-
-    gap = 20
-    total_w = sum(img.width for img in resized) + gap * (len(resized) - 1)
-    composite = Image.new("RGB", (total_w, target_h), (255, 255, 255))
-
-    x_offset = 0
-    for img in resized:
-        composite.paste(img, (x_offset, 0))
-        x_offset += img.width + gap
-
-    return composite
-
-
-def analyze_images_with_ai(composite_url, image_specs):
-    """Analyze the composite image and understand what to combine using Claude Opus 4.7."""
-    descriptions = []
-    positions = ["left", "center-left", "center", "center-right", "right"]
+def build_combine_prompt(image_specs, additional_specs):
+    """Build a multi-image edit prompt referencing each input by ordinal."""
     active_specs = [s for s in image_specs if s["file"] and s["description"]]
+    ordinals = ["first", "second", "third", "fourth", "fifth"]
 
-    for i, spec in enumerate(active_specs):
-        pos = positions[i] if len(active_specs) > 2 else ("left" if i == 0 else "right")
-        descriptions.append(f"The {pos} jewelry piece: extract its {spec['description']}")
-
-    spec_text = ". ".join(descriptions)
-
-    prompt = f"""You are an expert jewelry designer looking at a composite image showing multiple jewelry pieces side by side.
-
-{spec_text}.
-
-Describe in vivid detail what the FINAL COMBINED piece should look like — a single new jewelry piece that takes the specified component from each reference:
-- Describe the overall form and silhouette
-- Describe each component's appearance (metal finish, texture, stone settings, decorative elements)
-- Explain how the components connect seamlessly
-- Describe the metal color and finish transitions
-
-Write one detailed paragraph (100-150 words) describing this combined jewelry piece as if it already exists. Start with the jewelry type (ring, pendant, etc.)."""
-
-    result = fal_client.subscribe(
-        "fal-ai/any-llm",
-        arguments={
-            "model": "anthropic/claude-opus-4-7",
-            "prompt": prompt,
-            "image_url": composite_url,
-            "max_tokens": 512,
-        },
-    )
-    return result.get("output", "")
-
-
-def build_kontext_prompt(ai_description, image_specs, additional_specs):
-    """Build the FLUX Kontext prompt that references the composite image."""
-    active_specs = [s for s in image_specs if s["file"] and s["description"]]
-    positions = ["left", "center-left", "center", "center-right", "right"]
-
-    ref_instructions = []
-    for i, spec in enumerate(active_specs):
-        pos = positions[i] if len(active_specs) > 2 else ("left" if i == 0 else "right")
-        ref_instructions.append(f"the {spec['description']} from the {pos} piece")
-
+    ref_instructions = [
+        f"the {spec['description']} from the {ordinals[i]} image"
+        for i, spec in enumerate(active_specs)
+    ]
     ref_text = " and ".join(ref_instructions)
 
     prompt = (
-        f"This image shows multiple jewelry reference pieces side by side. "
-        f"Create a NEW single jewelry piece that combines {ref_text}. "
-        f"The result should be: {ai_description} "
+        f"Create a single new piece of jewelry that combines {ref_text}. "
+        f"The components must blend seamlessly into one cohesive design. "
     )
 
     if additional_specs.get("metal"):
@@ -513,45 +431,31 @@ def build_kontext_prompt(ai_description, image_specs, additional_specs):
     return prompt
 
 
-def generate_combined_design(composite_url, kontext_prompt):
-    """Generate from the composite image using multiple strategies."""
+def generate_combined_design(image_urls, prompt):
+    """Run multiple multi-image edit models in parallel-style strategies."""
     strategies = [
         {
-            "name": "FLUX Kontext (variation A)",
+            "name": "Nano Banana (Gemini 2.5 Flash Image)",
             "fn": lambda: fal_client.subscribe(
-                "fal-ai/flux-pro/kontext/max",
+                "fal-ai/nano-banana/edit",
                 arguments={
-                    "image_url": composite_url,
-                    "prompt": kontext_prompt,
+                    "image_urls": image_urls,
+                    "prompt": prompt,
                     "num_images": 1,
                     "output_format": "png",
-                    "safety_tolerance": 5,
                 },
             ),
         },
         {
-            "name": "FLUX Kontext (variation B)",
+            "name": "FLUX Kontext Max (multi-image)",
             "fn": lambda: fal_client.subscribe(
-                "fal-ai/flux-pro/kontext/max",
+                "fal-ai/flux-pro/kontext/max/multi",
                 arguments={
-                    "image_url": composite_url,
-                    "prompt": kontext_prompt,
+                    "image_urls": image_urls,
+                    "prompt": prompt,
                     "num_images": 1,
                     "output_format": "png",
                     "safety_tolerance": 5,
-                    "seed": 77777,
-                },
-            ),
-        },
-        {
-            "name": "Ideogram Remix",
-            "fn": lambda: fal_client.subscribe(
-                "fal-ai/ideogram/v2/remix",
-                arguments={
-                    "image_url": composite_url,
-                    "prompt": kontext_prompt,
-                    "num_images": 1,
-                    "magic_prompt_option": "AUTO",
                 },
             ),
         },
@@ -753,7 +657,7 @@ additional_specs = {
 # --- HOW IT WORKS ---
 st.markdown("""
 <div class="section-title">AI Pipeline</div>
-<div class="section-subtitle">Step 1: Claude Opus 4.7 analyzes each image component in detail. Step 2: A precise combination prompt is built. Step 3: Multiple AI models render the combined design from different perspectives.</div>
+<div class="section-subtitle">Step 1: References upload directly to fal.ai. Step 2: Your component descriptions are templated into a precise combination prompt. Step 3: Nano Banana (Gemini 2.5) and FLUX Kontext Max render the combined design from each image natively.</div>
 """, unsafe_allow_html=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
@@ -773,44 +677,22 @@ if generate_clicked:
     elif not has_descriptions:
         st.warning("Describe what component to use from each image.")
     else:
-        progress = st.progress(0, text="Phase 1/4: Stitching reference images...")
+        progress = st.progress(0, text="Phase 1/3: Uploading references to fal.ai...")
 
-        # PHASE 1: Create composite image
-        composite = create_composite_image(image_specs)
-        if composite is None:
-            st.error("Failed to create composite image.")
-            st.stop()
+        # PHASE 1: Upload each reference natively (multi-image models accept a list of URLs)
+        active_specs = [s for s in image_specs if s["file"] and s["description"]]
+        image_urls = [upload_to_fal(s["file"]) for s in active_specs]
 
-        progress.progress(0.15, text="Phase 1/4: Uploading composite to fal.ai...")
-        composite_url = upload_pil_to_fal(composite)
+        # PHASE 2: Build the combination prompt directly from user descriptions
+        progress.progress(0.3, text="Phase 2/3: Building combination prompt...")
+        combine_prompt = build_combine_prompt(image_specs, additional_specs)
 
-        st.markdown('<div class="section-title">Composite Reference</div>', unsafe_allow_html=True)
-        st.image(composite, caption="Side-by-side reference sent to AI", width="stretch")
+        with st.expander("Generation Prompt", expanded=False):
+            st.code(combine_prompt, language="text")
 
-        # PHASE 2: Claude Opus analyzes the composite
-        progress.progress(0.25, text="Phase 2/4: Claude Opus analyzing combined reference...")
-        try:
-            ai_description = analyze_images_with_ai(composite_url, image_specs)
-        except Exception as e:
-            st.warning(f"Claude analysis failed: {e}. Using manual descriptions.")
-            parts = []
-            for spec in image_specs:
-                if spec["file"] and spec["description"]:
-                    parts.append(spec["description"])
-            ai_description = "A jewelry piece combining: " + ", ".join(parts)
-
-        # PHASE 3: Build the combination prompt
-        progress.progress(0.4, text="Phase 3/4: Building expert combination prompt...")
-        kontext_prompt = build_kontext_prompt(ai_description, image_specs, additional_specs)
-
-        with st.expander("Claude Opus Analysis & Generation Prompt", expanded=False):
-            st.markdown(f"**Claude Opus Description:** {ai_description}")
-            st.markdown("---")
-            st.code(kontext_prompt, language="text")
-
-        # PHASE 4: Generate designs from the composite
-        progress.progress(0.5, text="Phase 4/4: Generating designs from composite...")
-        strategies = generate_combined_design(composite_url, kontext_prompt)
+        # PHASE 3: Generate via multi-image edit models
+        progress.progress(0.45, text="Phase 3/3: Generating combined designs...")
+        strategies = generate_combined_design(image_urls, combine_prompt)
         results = []
         strategy_names = []
 
@@ -818,7 +700,7 @@ if generate_clicked:
             for si, strategy in enumerate(strategies):
                 progress.progress(
                     0.5 + (si + 1) / (len(strategies) * 2),
-                    text=f"Phase 4/4: Rendering variation {si+1}/{len(strategies)} ({strategy['name']})...",
+                    text=f"Phase 3/3: Rendering variation {si+1}/{len(strategies)} ({strategy['name']})...",
                 )
                 try:
                     result = strategy["fn"]()
@@ -858,8 +740,8 @@ if generate_clicked:
                     )
 
             st.session_state["last_results"] = results
-            st.session_state["last_prompt"] = kontext_prompt
-            st.session_state["last_analyses"] = ai_description
+            st.session_state["last_prompt"] = combine_prompt
+            st.session_state["last_image_urls"] = image_urls
         else:
             st.error("No images were generated. Check your FAL_KEY and try again.")
 
@@ -887,21 +769,19 @@ if st.session_state.get("last_results"):
             base_prompt = st.session_state["last_prompt"]
             refined_prompt = f"{base_prompt} Modifications: {refinement}"
 
-            image_urls = []
-            for spec in image_specs:
-                if spec["file"]:
-                    image_urls.append(upload_to_fal(spec["file"]))
+            image_urls = st.session_state.get("last_image_urls") or [
+                upload_to_fal(s["file"]) for s in image_specs if s["file"]
+            ]
 
             with st.spinner("Regenerating with modifications..."):
                 try:
                     result = fal_client.subscribe(
-                        "fal-ai/flux-pro/kontext/max",
+                        "fal-ai/nano-banana/edit",
                         arguments={
-                            "image_url": image_urls[0] if image_urls else "",
-                            "prompt": f"Transform this jewelry piece: {refined_prompt}",
+                            "image_urls": image_urls,
+                            "prompt": refined_prompt,
                             "num_images": 1,
                             "output_format": "png",
-                            "safety_tolerance": 5,
                         },
                     )
                     url = extract_image_url(result)
