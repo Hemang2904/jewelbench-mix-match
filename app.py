@@ -410,15 +410,29 @@ def build_combine_prompt(image_specs, additional_specs):
 
     ref_lines = []
     component_summary = []
+    extracted_descs = [s["description"].strip().rstrip(".") for s in active_specs]
     for i, spec in enumerate(active_specs):
         n = i + 1
-        desc = spec["description"].strip().rstrip(".")
+        desc = extracted_descs[i]
+        other_descs = [d for j, d in enumerate(extracted_descs) if j != i]
+        ignore_clause = (
+            f"DO NOT use, reference, or borrow from any other part of Image {n} "
+            f"— in particular, IGNORE Image {n}'s "
+            + (
+                ", ".join(other_descs)
+                if other_descs
+                else "other components"
+            )
+            + ", structural features (cutouts, gaps, openings, bezel housings, "
+            "tension brackets), surface decoration, and stones. Those parts "
+            "must NOT appear in the output."
+        )
         ref_lines.append(
             f"- From Image {n}: take ONLY the {desc}. Reproduce it 1:1 — "
             f"exact metal color (rose-gold stays rose-gold, yellow-gold stays "
             f"yellow-gold, white-gold stays white-gold, platinum stays "
             f"platinum), shape, prongs, stones, surface finish, profile, "
-            f"width, taper, and proportions. Ignore everything else in Image {n}."
+            f"width, taper, and proportions. {ignore_clause}"
         )
         component_summary.append(f"the {desc} (from Image {n})")
 
@@ -446,6 +460,24 @@ def build_combine_prompt(image_specs, additional_specs):
         "white-gold, the output shows rose-gold meeting white-gold at a "
         "crisp boundary. If three different metal colors appear across the "
         "components, all three appear in the output.",
+
+        "EXCLUSION RULES (CRITICAL)\n"
+        "- The output's shank comes ONLY from the image whose shank was "
+        "extracted. Do NOT carry the shank — its pavé, stones, profile, or "
+        "decoration — from any other reference image, even if it looks more "
+        "typical or more 'jewelry-like'.\n"
+        "- The output's head comes ONLY from the image whose head was "
+        "extracted. Do NOT borrow prongs, halos, or settings from any other "
+        "reference.\n"
+        "- Specific failure to avoid: extracting a head from Image 1 and a "
+        "shank from Image 2, then producing an output where the shank is a "
+        "blend of BOTH shanks (e.g., plain band with pavé added from Image 1, "
+        "or Image 2's plain band with Image 1's pavé grafted on). The output "
+        "shank must be a faithful reproduction of Image 2's shank ALONE.\n"
+        "- Do NOT borrow structural features (cutouts, gaps, openings, "
+        "bezel housings, tension brackets, frame windows) from a component "
+        "you are NOT extracting. If Image 2's bezel structure is not part "
+        "of the extracted shank, it must NOT appear in the output.",
 
         "ANTI-COPY RULE (CRITICAL)\n"
         "- The output MUST NOT be a copy or near-copy of any single "
@@ -517,6 +549,8 @@ def build_combine_prompt(image_specs, additional_specs):
         f"- Are decorative elements (pavé, prongs, side stones) symmetric "
         f"across both shoulders / both sides? They MUST be.\n"
         f"- Is the background pure white RGB(255,255,255), not gray? It MUST be.\n"
+        f"- Has any non-extracted component (e.g., the shank of Image 1 when "
+        f"only its head was extracted) leaked into the output? It MUST NOT.\n"
         f"- Is the output clearly a NEW piece (not a copy of any single reference)? "
         f"It MUST be.",
     ]
