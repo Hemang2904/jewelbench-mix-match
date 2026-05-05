@@ -413,8 +413,11 @@ def build_combine_prompt(image_specs, additional_specs):
         n = i + 1
         desc = spec["description"].strip().rstrip(".")
         ref_lines.append(
-            f"- Image {n}: extract the {desc}. Preserve its exact metal color, "
-            f"surface finish, texture, stone setting style, and proportions. "
+            f"- Image {n}: extract the {desc}. Reproduce EVERY metal color "
+            f"visible on this component (rose-gold stays rose-gold, "
+            f"yellow-gold stays yellow-gold, white-gold stays white-gold, "
+            f"platinum stays platinum). Match the exact hue, saturation, "
+            f"polish, finish, texture, stone-setting style, and proportions. "
             f"Ignore every other element of Image {n}."
         )
         component_summary.append(f"the {desc} (from Image {n})")
@@ -438,6 +441,23 @@ def build_combine_prompt(image_specs, additional_specs):
         "finish, and every visible detail unless overridden below. Keep the "
         "boundary between metals crisp and intentional (two-tone is acceptable "
         "and often desired).",
+
+        "COLOR PRESERVATION (CRITICAL)\n"
+        "- Identify every distinct metal color present on each extracted "
+        "component before composing. Common cases: a rose-gold flower halo "
+        "around a white-gold prong setting; a two-tone shank with white-gold "
+        "rails and yellow-gold center; etc.\n"
+        "- The output MUST show every one of those colors in the same "
+        "locations on the same parts. Do NOT unify, harmonize, or average "
+        "metal colors across components — the joint may show two different "
+        "metals meeting, and that is correct.\n"
+        "- A common failure to avoid: rendering a rose-gold component as "
+        "white-gold/silver because the other component is white-gold. Do "
+        "not do this. Each component keeps its source color independently.\n"
+        "- If the source component is rose-gold and shiny, the output is "
+        "rose-gold and shiny. If matte yellow-gold, the output is matte "
+        "yellow-gold. No exceptions unless the METAL OVERRIDE section below "
+        "explicitly says so.",
 
         "FIDELITY RULES (STRICT — DO NOT VIOLATE)\n"
         "- Reproduce every extracted component EXACTLY as it appears in its "
@@ -514,6 +534,18 @@ def generate_combined_design(image_urls, prompt):
                     "prompt": prompt,
                     "num_images": 1,
                     "image_size": "square_hd",
+                },
+            ),
+        },
+        {
+            "name": "Qwen Image Edit Plus",
+            "fn": lambda: fal_client.subscribe(
+                "fal-ai/qwen-image-edit-plus",
+                arguments={
+                    "image_urls": image_urls,
+                    "prompt": prompt,
+                    "num_images": 1,
+                    "output_format": "png",
                 },
             ),
         },
@@ -715,7 +747,7 @@ additional_specs = {
 # --- HOW IT WORKS ---
 st.markdown("""
 <div class="section-title">AI Pipeline</div>
-<div class="section-subtitle">Step 1: References upload directly to fal.ai. Step 2: A structured master prompt is built with strict fidelity rules (no invented stones, no redesigned shanks). Step 3: Gemini 2.5 Flash Image Edit and Seedream v4 each render the combined design natively from both references.</div>
+<div class="section-subtitle">Step 1: References upload directly to fal.ai. Step 2: A structured master prompt is built with strict fidelity + per-metal-color preservation rules. Step 3: Gemini 2.5 Flash Image Edit, Seedream v4, and Qwen Image Edit Plus each render the combined design natively from both references.</div>
 """, unsafe_allow_html=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
