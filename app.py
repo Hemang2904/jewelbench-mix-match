@@ -461,6 +461,27 @@ def build_combine_prompt(image_specs, additional_specs):
         "the references must immediately see which part came from which "
         "reference.",
 
+        "SILHOUETTE PRESERVATION (CRITICAL)\n"
+        "- Reproduce the exact 2D outline and silhouette of each extracted "
+        "component. If the head is shaped like a flower with petals, the "
+        "output head is shaped like a flower with petals. If the head is a "
+        "6-prong solitaire, the output head is a 6-prong solitaire.\n"
+        "- Decorative elements that define the shape — petals, halos, "
+        "leaves, scrollwork, filigree, openwork, basket cages — MUST appear "
+        "in the output exactly as in the source.\n"
+        "- Do NOT simplify an ornate component into a plain one (e.g., "
+        "turning a flower halo into a bare 4-prong setting).\n"
+        "- Do NOT embellish a plain component into an ornate one.\n"
+        "- Color alone is not enough — match the SHAPE.",
+
+        "SURFACE FINISH PRESERVATION\n"
+        "- If the source surface is high-polished and smooth, the output "
+        "surface is high-polished and smooth.\n"
+        "- Do NOT add brushed, hammered, knurled, satin, matte, sandblasted, "
+        "wood-grain, or any textured finish that is not in the source.\n"
+        "- Do NOT add milgrain edges, engraving lines, or hatching that is "
+        "not in the source.",
+
         "PRESERVATION RULES (STRICT)\n"
         "- Do NOT add stones, diamonds, pavé, channel-set stones, halos, "
         "milgrain, engraving, filigree, or any decoration that is not "
@@ -476,6 +497,11 @@ def build_combine_prompt(image_specs, additional_specs):
 
         f"VERIFY BEFORE FINALIZING\n{component_checklist}\n"
         f"- Does each extracted component keep its original metal color? It MUST.\n"
+        f"- Does each extracted component keep its original SHAPE/silhouette "
+        f"(petals, halos, prong count, band profile)? It MUST.\n"
+        f"- Are all surfaces in the output finished the same way as their "
+        f"source (no added brushed/textured/matte finish)? They MUST be.\n"
+        f"- Is the background pure white RGB(255,255,255), not gray? It MUST be.\n"
         f"- Is the output clearly a NEW piece (not a copy of any single reference)? "
         f"It MUST be.",
     ]
@@ -498,11 +524,13 @@ def build_combine_prompt(image_specs, additional_specs):
 
     sections.append(
         "OUTPUT\n"
-        "One ring on a pure white seamless background with a subtle soft "
-        "shadow. Professional jewelry product photography, ultra-sharp macro "
-        "detail, studio lighting, centered three-quarter angle, the piece "
-        "occupying roughly 70% of the frame. No hands, no models, no props, "
-        "no text, no watermarks, no logos, no collage of references."
+        "One ring on a PURE WHITE seamless background — RGB(255,255,255), "
+        "not gray, not cream, not off-white, not tinted — with only a "
+        "subtle soft shadow directly under the piece. Professional jewelry "
+        "product photography, ultra-sharp macro detail, even studio "
+        "lighting, centered three-quarter angle, the piece occupying "
+        "roughly 70% of the frame. No hands, no models, no props, no text, "
+        "no watermarks, no logos, no collage of references."
     )
 
     return "\n\n".join(sections)
