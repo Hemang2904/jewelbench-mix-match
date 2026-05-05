@@ -399,40 +399,81 @@ def upload_to_fal(uploaded_file):
 
 
 def build_combine_prompt(image_specs, additional_specs):
-    """Build a multi-image edit prompt referencing each input by ordinal."""
+    """Build a structured master prompt with explicit per-image references.
+
+    The prompt labels each reference as "Image N", repeats the same labels in
+    the construction step, and pins down metal-color preservation, output
+    framing, and forbidden artifacts so the model has no room to drift.
+    """
     active_specs = [s for s in image_specs if s["file"] and s["description"]]
-    ordinals = ["first", "second", "third", "fourth", "fifth"]
 
-    ref_instructions = [
-        f"the {spec['description']} from the {ordinals[i]} image"
-        for i, spec in enumerate(active_specs)
+    ref_lines = []
+    component_summary = []
+    for i, spec in enumerate(active_specs):
+        n = i + 1
+        desc = spec["description"].strip().rstrip(".")
+        ref_lines.append(
+            f"- Image {n}: extract the {desc}. Preserve its exact metal color, "
+            f"surface finish, texture, stone setting style, and proportions. "
+            f"Ignore every other element of Image {n}."
+        )
+        component_summary.append(f"the {desc} (from Image {n})")
+
+    refs_block = "\n".join(ref_lines)
+    components_text = " + ".join(component_summary)
+
+    sections = [
+        "TASK\n"
+        "Create ONE single new piece of jewelry by precisely combining components "
+        "from the reference images provided. The output must be a brand new piece, "
+        "not a copy of any reference.",
+
+        f"SOURCE COMPONENTS\n{refs_block}",
+
+        "CONSTRUCTION\n"
+        f"Combine these components into a single cohesive piece: {components_text}. "
+        "The components must connect seamlessly with a clean, structurally plausible "
+        "transition at every joint. Each component must retain its original metal "
+        "color and surface finish unless overridden below — do not blend, average, "
+        "or invent new metal colors. Keep the boundary between metals crisp and "
+        "intentional (two-tone is acceptable and often desired).",
     ]
-    ref_text = " and ".join(ref_instructions)
-
-    prompt = (
-        f"Create a single new piece of jewelry that combines {ref_text}. "
-        f"The components must blend seamlessly into one cohesive design. "
-    )
 
     if additional_specs.get("metal"):
-        prompt += f"Metal: {additional_specs['metal']}. "
-    if additional_specs.get("stones"):
-        prompt += f"Stones: {additional_specs['stones']}. "
-    if additional_specs.get("dimensions"):
-        prompt += f"Proportions: {additional_specs['dimensions']}. "
-    if additional_specs.get("notes"):
-        prompt += f"{additional_specs['notes']}. "
+        sections.append(
+            "METAL OVERRIDE\n"
+            f"Render the entire piece in {additional_specs['metal']}, replacing the "
+            "original metal colors of all references."
+        )
 
-    prompt += (
-        "Output ONLY the single combined piece on a pure white background. "
-        "Professional jewelry product photography, 8K, sharp macro detail, "
-        "catalog-quality, centered, no hands or props."
+    if additional_specs.get("stones"):
+        sections.append(f"STONES\n{additional_specs['stones']}")
+
+    if additional_specs.get("dimensions"):
+        sections.append(f"PROPORTIONS\n{additional_specs['dimensions']}")
+
+    if additional_specs.get("notes"):
+        sections.append(f"ADDITIONAL NOTES\n{additional_specs['notes']}")
+
+    sections.append(
+        "OUTPUT REQUIREMENTS\n"
+        "- Render exactly ONE piece of jewelry. Never show the original references "
+        "side-by-side or as a collage.\n"
+        "- Pure white seamless background with a subtle soft shadow under the piece.\n"
+        "- Professional jewelry product photography, 8K, ultra-sharp macro detail, "
+        "studio lighting, catalog-quality.\n"
+        "- Centered composition, the piece occupying roughly 70% of the frame, "
+        "shot from a flattering three-quarter angle.\n"
+        "- No hands, no models, no props, no text, no watermarks, no logos, "
+        "no engravings from the originals.\n"
+        "- Output a single high-resolution photorealistic image."
     )
-    return prompt
+
+    return "\n\n".join(sections)
 
 
 def generate_combined_design(image_urls, prompt):
-    """Run multiple multi-image edit models in parallel-style strategies."""
+    """Run two multi-image edit models for variation."""
     strategies = [
         {
             "name": "Nano Banana (Gemini 2.5 Flash Image)",
@@ -447,15 +488,14 @@ def generate_combined_design(image_urls, prompt):
             ),
         },
         {
-            "name": "FLUX Kontext Max (multi-image)",
+            "name": "Gemini 2.5 Flash Image Edit",
             "fn": lambda: fal_client.subscribe(
-                "fal-ai/flux-pro/kontext/max/multi",
+                "fal-ai/gemini-25-flash-image/edit",
                 arguments={
                     "image_urls": image_urls,
                     "prompt": prompt,
                     "num_images": 1,
                     "output_format": "png",
-                    "safety_tolerance": 5,
                 },
             ),
         },
@@ -657,7 +697,7 @@ additional_specs = {
 # --- HOW IT WORKS ---
 st.markdown("""
 <div class="section-title">AI Pipeline</div>
-<div class="section-subtitle">Step 1: References upload directly to fal.ai. Step 2: Your component descriptions are templated into a precise combination prompt. Step 3: Nano Banana (Gemini 2.5) and FLUX Kontext Max render the combined design from each image natively.</div>
+<div class="section-subtitle">Step 1: References upload directly to fal.ai. Step 2: A structured master prompt is built that labels each image and pins down metal-color preservation. Step 3: Nano Banana and Gemini 2.5 Flash Image Edit each render the combined design natively from both references.</div>
 """, unsafe_allow_html=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
@@ -681,7 +721,11 @@ if generate_clicked:
 
         # PHASE 1: Upload each reference natively (multi-image models accept a list of URLs)
         active_specs = [s for s in image_specs if s["file"] and s["description"]]
-        image_urls = [upload_to_fal(s["file"]) for s in active_specs]
+        try:
+            image_urls = [upload_to_fal(s["file"]) for s in active_specs]
+        except Exception as e:
+            st.error(f"Reference upload failed: {e}")
+            st.stop()
 
         # PHASE 2: Build the combination prompt directly from user descriptions
         progress.progress(0.3, text="Phase 2/3: Building combination prompt...")
@@ -767,7 +811,12 @@ if st.session_state.get("last_results"):
             st.warning("Describe what to change before regenerating.")
         else:
             base_prompt = st.session_state["last_prompt"]
-            refined_prompt = f"{base_prompt} Modifications: {refinement}"
+            refined_prompt = (
+                f"{base_prompt}\n\n"
+                f"REFINEMENT (apply on top of the above)\n{refinement.strip()}\n"
+                f"Keep the previously specified components, metals, and stones unchanged "
+                f"except where the refinement explicitly overrides them."
+            )
 
             image_urls = st.session_state.get("last_image_urls") or [
                 upload_to_fal(s["file"]) for s in image_specs if s["file"]
