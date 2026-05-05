@@ -399,11 +399,12 @@ def upload_to_fal(uploaded_file):
 
 
 def build_combine_prompt(image_specs, additional_specs):
-    """Build a structured master prompt with explicit per-image references.
+    """Master prompt tuned for fal-ai/bytedance/seedream/v4/edit.
 
-    The prompt labels each reference as "Image N", repeats the same labels in
-    the construction step, and pins down metal-color preservation, output
-    framing, and forbidden artifacts so the model has no room to drift.
+    Seedream v4 responds best to tight imperative prompts with crisp
+    per-image extraction lines and short rule blocks. Avoid long meta
+    framing — Seedream handles structural fidelity natively when told
+    plainly.
     """
     active_specs = [s for s in image_specs if s["file"] and s["description"]]
 
@@ -413,12 +414,11 @@ def build_combine_prompt(image_specs, additional_specs):
         n = i + 1
         desc = spec["description"].strip().rstrip(".")
         ref_lines.append(
-            f"- Image {n}: extract the {desc}. Reproduce EVERY metal color "
-            f"visible on this component (rose-gold stays rose-gold, "
-            f"yellow-gold stays yellow-gold, white-gold stays white-gold, "
-            f"platinum stays platinum). Match the exact hue, saturation, "
-            f"polish, finish, texture, stone-setting style, and proportions. "
-            f"Ignore every other element of Image {n}."
+            f"- From Image {n}: take ONLY the {desc}. Reproduce it 1:1 — "
+            f"exact metal color (rose-gold stays rose-gold, yellow-gold stays "
+            f"yellow-gold, white-gold stays white-gold, platinum stays "
+            f"platinum), shape, prongs, stones, surface finish, profile, "
+            f"width, taper, and proportions. Ignore everything else in Image {n}."
         )
         component_summary.append(f"the {desc} (from Image {n})")
 
@@ -426,62 +426,38 @@ def build_combine_prompt(image_specs, additional_specs):
     components_text = " + ".join(component_summary)
 
     sections = [
-        "TASK\n"
-        "Assemble ONE single new piece of jewelry by combining the specified "
-        "components from the reference images. This is a precise part-swap, not "
-        "a redesign. Reproduce each extracted component as a 1:1 copy of its "
-        "source — only the joint where components meet may be invented.",
+        "Combine the reference images into ONE single new piece of jewelry. "
+        "This is a precise part-swap — copy each extracted component exactly. "
+        "Only the joint where components meet may be invented.",
 
-        f"SOURCE COMPONENTS\n{refs_block}",
+        f"EXTRACT FROM EACH IMAGE\n{refs_block}",
 
         "CONSTRUCTION\n"
-        f"Assemble these components into one cohesive piece: {components_text}. "
-        "Connect them with a clean, structurally plausible transition at the "
-        "joint. Each component must retain its original metal color, surface "
-        "finish, and every visible detail unless overridden below. Keep the "
-        "boundary between metals crisp and intentional (two-tone is acceptable "
-        "and often desired).",
+        f"Assemble: {components_text}. Connect them with a clean, "
+        "structurally sound joint. Two-tone metal is correct and intended — "
+        "do not unify, average, or harmonize metal colors across components. "
+        "If one component is rose-gold and the other is white-gold, the "
+        "output shows rose-gold meeting white-gold at a crisp boundary.",
 
-        "COLOR PRESERVATION (CRITICAL)\n"
-        "- Identify every distinct metal color present on each extracted "
-        "component before composing. Common cases: a rose-gold flower halo "
-        "around a white-gold prong setting; a two-tone shank with white-gold "
-        "rails and yellow-gold center; etc.\n"
-        "- The output MUST show every one of those colors in the same "
-        "locations on the same parts. Do NOT unify, harmonize, or average "
-        "metal colors across components — the joint may show two different "
-        "metals meeting, and that is correct.\n"
-        "- A common failure to avoid: rendering a rose-gold component as "
-        "white-gold/silver because the other component is white-gold. Do "
-        "not do this. Each component keeps its source color independently.\n"
-        "- If the source component is rose-gold and shiny, the output is "
-        "rose-gold and shiny. If matte yellow-gold, the output is matte "
-        "yellow-gold. No exceptions unless the METAL OVERRIDE section below "
-        "explicitly says so.",
-
-        "FIDELITY RULES (STRICT — DO NOT VIOLATE)\n"
-        "- Reproduce every extracted component EXACTLY as it appears in its "
-        "source image. Match shape, profile, width, taper, surface finish, "
-        "polish, and metal color one-to-one.\n"
-        "- DO NOT add stones, diamonds, pavé, channel-set stones, halos, "
-        "milgrain, engraving, filigree, openwork, knurling, or any decorative "
-        "detail that is not visibly present on that component in its source.\n"
-        "- DO NOT remove stones, prongs, or details that ARE visible in the "
-        "source component.\n"
-        "- If a component's surface is plain and smooth in the source, keep it "
-        "plain and smooth in the output. If it is set with stones in the "
-        "source, keep exactly those stones in the same arrangement.\n"
-        "- DO NOT change the band thickness, shoulder profile, or shank cross-"
-        "section of the shank. DO NOT change the head's prong count, prong "
-        "shape, or stone size.\n"
-        "- DO NOT redesign, stylize, or reinterpret the components — copy them.",
+        "PRESERVATION RULES (STRICT)\n"
+        "- Do NOT add stones, diamonds, pavé, channel-set stones, halos, "
+        "milgrain, engraving, filigree, or any decoration that is not "
+        "visible on that component in its source image.\n"
+        "- Do NOT remove stones, prongs, or details that ARE visible in "
+        "the source component.\n"
+        "- If a component is plain and smooth in the source, keep it plain "
+        "and smooth. If it is set with stones, keep exactly those stones in "
+        "the same arrangement.\n"
+        "- Do NOT change band thickness, shoulder profile, prong count, "
+        "prong shape, or stone size.\n"
+        "- Do NOT redesign, stylize, or reinterpret — copy.",
     ]
 
     if additional_specs.get("metal"):
         sections.append(
-            "METAL OVERRIDE\n"
-            f"Render the entire piece in {additional_specs['metal']}, replacing the "
-            "original metal colors of all references."
+            f"METAL OVERRIDE\nRender the entire piece in {additional_specs['metal']}, "
+            "replacing the original metal colors of all references. This "
+            "overrides the color preservation rules above."
         )
 
     if additional_specs.get("stones"):
@@ -491,40 +467,24 @@ def build_combine_prompt(image_specs, additional_specs):
         sections.append(f"PROPORTIONS\n{additional_specs['dimensions']}")
 
     if additional_specs.get("notes"):
-        sections.append(f"ADDITIONAL NOTES\n{additional_specs['notes']}")
+        sections.append(f"NOTES\n{additional_specs['notes']}")
 
     sections.append(
-        "OUTPUT REQUIREMENTS\n"
-        "- Render exactly ONE piece of jewelry. Never show the original references "
-        "side-by-side or as a collage.\n"
-        "- Pure white seamless background with a subtle soft shadow under the piece.\n"
-        "- Professional jewelry product photography, 8K, ultra-sharp macro detail, "
-        "studio lighting, catalog-quality.\n"
-        "- Centered composition, the piece occupying roughly 70% of the frame, "
-        "shot from a flattering three-quarter angle.\n"
-        "- No hands, no models, no props, no text, no watermarks, no logos, "
-        "no engravings from the originals.\n"
-        "- Output a single high-resolution photorealistic image."
+        "OUTPUT\n"
+        "One ring on a pure white seamless background with a subtle soft "
+        "shadow. Professional jewelry product photography, ultra-sharp macro "
+        "detail, studio lighting, centered three-quarter angle, the piece "
+        "occupying roughly 70% of the frame. No hands, no models, no props, "
+        "no text, no watermarks, no logos, no collage of references."
     )
 
     return "\n\n".join(sections)
 
 
 def generate_combined_design(image_urls, prompt):
-    """Run two high-fidelity multi-image edit models for variation."""
-    strategies = [
-        {
-            "name": "Gemini 2.5 Flash Image Edit",
-            "fn": lambda: fal_client.subscribe(
-                "fal-ai/gemini-25-flash-image/edit",
-                arguments={
-                    "image_urls": image_urls,
-                    "prompt": prompt,
-                    "num_images": 1,
-                    "output_format": "png",
-                },
-            ),
-        },
+    """Run Seedream v4 — the only model that consistently preserves both
+    component structure and metal color on jewelry part-swaps."""
+    return [
         {
             "name": "Seedream v4 Edit (ByteDance)",
             "fn": lambda: fal_client.subscribe(
@@ -537,20 +497,7 @@ def generate_combined_design(image_urls, prompt):
                 },
             ),
         },
-        {
-            "name": "Qwen Image Edit Plus",
-            "fn": lambda: fal_client.subscribe(
-                "fal-ai/qwen-image-edit-plus",
-                arguments={
-                    "image_urls": image_urls,
-                    "prompt": prompt,
-                    "num_images": 1,
-                    "output_format": "png",
-                },
-            ),
-        },
     ]
-    return strategies
 
 
 def extract_image_url(result):
@@ -747,7 +694,7 @@ additional_specs = {
 # --- HOW IT WORKS ---
 st.markdown("""
 <div class="section-title">AI Pipeline</div>
-<div class="section-subtitle">Step 1: References upload directly to fal.ai. Step 2: A structured master prompt is built with strict fidelity + per-metal-color preservation rules. Step 3: Gemini 2.5 Flash Image Edit, Seedream v4, and Qwen Image Edit Plus each render the combined design natively from both references.</div>
+<div class="section-subtitle">Step 1: References upload directly to fal.ai. Step 2: A Seedream-tuned master prompt is built with strict per-metal-color preservation rules. Step 3: Seedream v4 Edit (ByteDance) renders the combined design natively from both references.</div>
 """, unsafe_allow_html=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
@@ -875,12 +822,12 @@ if st.session_state.get("last_results"):
             with st.spinner("Regenerating with modifications..."):
                 try:
                     result = fal_client.subscribe(
-                        "fal-ai/gemini-25-flash-image/edit",
+                        "fal-ai/bytedance/seedream/v4/edit",
                         arguments={
                             "image_urls": image_urls,
                             "prompt": refined_prompt,
                             "num_images": 1,
-                            "output_format": "png",
+                            "image_size": "square_hd",
                         },
                     )
                     url = extract_image_url(result)
