@@ -424,19 +424,37 @@ def build_combine_prompt(image_specs, additional_specs):
 
     sections = [
         "TASK\n"
-        "Create ONE single new piece of jewelry by precisely combining components "
-        "from the reference images provided. The output must be a brand new piece, "
-        "not a copy of any reference.",
+        "Assemble ONE single new piece of jewelry by combining the specified "
+        "components from the reference images. This is a precise part-swap, not "
+        "a redesign. Reproduce each extracted component as a 1:1 copy of its "
+        "source — only the joint where components meet may be invented.",
 
         f"SOURCE COMPONENTS\n{refs_block}",
 
         "CONSTRUCTION\n"
-        f"Combine these components into a single cohesive piece: {components_text}. "
-        "The components must connect seamlessly with a clean, structurally plausible "
-        "transition at every joint. Each component must retain its original metal "
-        "color and surface finish unless overridden below — do not blend, average, "
-        "or invent new metal colors. Keep the boundary between metals crisp and "
-        "intentional (two-tone is acceptable and often desired).",
+        f"Assemble these components into one cohesive piece: {components_text}. "
+        "Connect them with a clean, structurally plausible transition at the "
+        "joint. Each component must retain its original metal color, surface "
+        "finish, and every visible detail unless overridden below. Keep the "
+        "boundary between metals crisp and intentional (two-tone is acceptable "
+        "and often desired).",
+
+        "FIDELITY RULES (STRICT — DO NOT VIOLATE)\n"
+        "- Reproduce every extracted component EXACTLY as it appears in its "
+        "source image. Match shape, profile, width, taper, surface finish, "
+        "polish, and metal color one-to-one.\n"
+        "- DO NOT add stones, diamonds, pavé, channel-set stones, halos, "
+        "milgrain, engraving, filigree, openwork, knurling, or any decorative "
+        "detail that is not visibly present on that component in its source.\n"
+        "- DO NOT remove stones, prongs, or details that ARE visible in the "
+        "source component.\n"
+        "- If a component's surface is plain and smooth in the source, keep it "
+        "plain and smooth in the output. If it is set with stones in the "
+        "source, keep exactly those stones in the same arrangement.\n"
+        "- DO NOT change the band thickness, shoulder profile, or shank cross-"
+        "section of the shank. DO NOT change the head's prong count, prong "
+        "shape, or stone size.\n"
+        "- DO NOT redesign, stylize, or reinterpret the components — copy them.",
     ]
 
     if additional_specs.get("metal"):
@@ -473,20 +491,8 @@ def build_combine_prompt(image_specs, additional_specs):
 
 
 def generate_combined_design(image_urls, prompt):
-    """Run two multi-image edit models for variation."""
+    """Run two high-fidelity multi-image edit models for variation."""
     strategies = [
-        {
-            "name": "Nano Banana (Gemini 2.5 Flash Image)",
-            "fn": lambda: fal_client.subscribe(
-                "fal-ai/nano-banana/edit",
-                arguments={
-                    "image_urls": image_urls,
-                    "prompt": prompt,
-                    "num_images": 1,
-                    "output_format": "png",
-                },
-            ),
-        },
         {
             "name": "Gemini 2.5 Flash Image Edit",
             "fn": lambda: fal_client.subscribe(
@@ -496,6 +502,18 @@ def generate_combined_design(image_urls, prompt):
                     "prompt": prompt,
                     "num_images": 1,
                     "output_format": "png",
+                },
+            ),
+        },
+        {
+            "name": "Seedream v4 Edit (ByteDance)",
+            "fn": lambda: fal_client.subscribe(
+                "fal-ai/bytedance/seedream/v4/edit",
+                arguments={
+                    "image_urls": image_urls,
+                    "prompt": prompt,
+                    "num_images": 1,
+                    "image_size": "square_hd",
                 },
             ),
         },
@@ -697,7 +715,7 @@ additional_specs = {
 # --- HOW IT WORKS ---
 st.markdown("""
 <div class="section-title">AI Pipeline</div>
-<div class="section-subtitle">Step 1: References upload directly to fal.ai. Step 2: A structured master prompt is built that labels each image and pins down metal-color preservation. Step 3: Nano Banana and Gemini 2.5 Flash Image Edit each render the combined design natively from both references.</div>
+<div class="section-subtitle">Step 1: References upload directly to fal.ai. Step 2: A structured master prompt is built with strict fidelity rules (no invented stones, no redesigned shanks). Step 3: Gemini 2.5 Flash Image Edit and Seedream v4 each render the combined design natively from both references.</div>
 """, unsafe_allow_html=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
@@ -825,7 +843,7 @@ if st.session_state.get("last_results"):
             with st.spinner("Regenerating with modifications..."):
                 try:
                     result = fal_client.subscribe(
-                        "fal-ai/nano-banana/edit",
+                        "fal-ai/gemini-25-flash-image/edit",
                         arguments={
                             "image_urls": image_urls,
                             "prompt": refined_prompt,
