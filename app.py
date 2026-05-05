@@ -563,7 +563,7 @@ def generate_combined_design(image_urls, prompt):
                     "image_urls": image_urls,
                     "prompt": prompt,
                     "num_images": 1,
-                    "image_size": "square_2k",
+                    "image_size": "auto_2K",
                 },
             ),
         },
@@ -901,7 +901,7 @@ if st.session_state.get("last_results"):
                             "image_urls": image_urls,
                             "prompt": refined_prompt,
                             "num_images": 1,
-                            "image_size": "square_2k",
+                            "image_size": "auto_2K",
                         },
                     )
                     url = extract_image_url(result)
