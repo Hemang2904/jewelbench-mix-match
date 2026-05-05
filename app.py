@@ -475,12 +475,25 @@ def build_combine_prompt(image_specs, additional_specs):
         "- Color alone is not enough — match the SHAPE.",
 
         "SURFACE FINISH PRESERVATION\n"
+        "- DEFAULT to high-polished, mirror-finish metal unless the source "
+        "clearly shows a matte / brushed / satin / hammered / sandblasted "
+        "texture. When in doubt, render polished — never default to matte.\n"
         "- If the source surface is high-polished and smooth, the output "
         "surface is high-polished and smooth.\n"
         "- Do NOT add brushed, hammered, knurled, satin, matte, sandblasted, "
         "wood-grain, or any textured finish that is not in the source.\n"
         "- Do NOT add milgrain edges, engraving lines, or hatching that is "
         "not in the source.",
+
+        "SYMMETRY\n"
+        "- Decorative elements (pavé stones, channel-set stones, side "
+        "diamonds, milgrain, halos, prongs, scrollwork) MUST appear "
+        "symmetrically on both shoulders and both sides of the piece. If "
+        "the source shank has pavé on both shoulders, the output shank has "
+        "pavé on both shoulders — never on one side only.\n"
+        "- The left and right halves of the ring must mirror each other "
+        "unless the source is intentionally asymmetric.\n"
+        "- The head's prongs must be evenly spaced and equal in size.",
 
         "PRESERVATION RULES (STRICT)\n"
         "- Do NOT add stones, diamonds, pavé, channel-set stones, halos, "
@@ -500,7 +513,9 @@ def build_combine_prompt(image_specs, additional_specs):
         f"- Does each extracted component keep its original SHAPE/silhouette "
         f"(petals, halos, prong count, band profile)? It MUST.\n"
         f"- Are all surfaces in the output finished the same way as their "
-        f"source (no added brushed/textured/matte finish)? They MUST be.\n"
+        f"source (polished defaults to polished, no added brushed/matte)? They MUST be.\n"
+        f"- Are decorative elements (pavé, prongs, side stones) symmetric "
+        f"across both shoulders / both sides? They MUST be.\n"
         f"- Is the background pure white RGB(255,255,255), not gray? It MUST be.\n"
         f"- Is the output clearly a NEW piece (not a copy of any single reference)? "
         f"It MUST be.",
@@ -548,7 +563,7 @@ def generate_combined_design(image_urls, prompt):
                     "image_urls": image_urls,
                     "prompt": prompt,
                     "num_images": 1,
-                    "image_size": "square_hd",
+                    "image_size": "square_2k",
                 },
             ),
         },
@@ -753,7 +768,7 @@ additional_specs = {
 # --- HOW IT WORKS ---
 st.markdown("""
 <div class="section-title">AI Pipeline</div>
-<div class="section-subtitle">Step 1: References upload directly to fal.ai. Step 2: A Seedream-tuned master prompt is built with strict per-metal-color preservation rules. Step 3: Seedream v4 Edit (ByteDance) renders the combined design natively from both references.</div>
+<div class="section-subtitle">Step 1: References upload directly to fal.ai. Step 2: A Seedream-tuned master prompt is built with strict silhouette / finish / symmetry / color preservation rules. Step 3: Seedream v4 Edit (ByteDance) renders the combined design at 2K resolution natively from both references.</div>
 """, unsafe_allow_html=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
@@ -886,7 +901,7 @@ if st.session_state.get("last_results"):
                             "image_urls": image_urls,
                             "prompt": refined_prompt,
                             "num_images": 1,
-                            "image_size": "square_hd",
+                            "image_size": "square_2k",
                         },
                     )
                     url = extract_image_url(result)
