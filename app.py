@@ -425,6 +425,12 @@ def build_combine_prompt(image_specs, additional_specs):
     refs_block = "\n".join(ref_lines)
     components_text = " + ".join(component_summary)
 
+    component_checklist = "\n".join(
+        f"- Is the {spec['description'].strip().rstrip('.')} from Image {i+1} "
+        f"visibly present in the output? It MUST be."
+        for i, spec in enumerate(active_specs)
+    )
+
     sections = [
         "Combine the reference images into ONE single new piece of jewelry. "
         "This is a precise part-swap — copy each extracted component exactly. "
@@ -434,10 +440,26 @@ def build_combine_prompt(image_specs, additional_specs):
 
         "CONSTRUCTION\n"
         f"Assemble: {components_text}. Connect them with a clean, "
-        "structurally sound joint. Two-tone metal is correct and intended — "
-        "do not unify, average, or harmonize metal colors across components. "
-        "If one component is rose-gold and the other is white-gold, the "
-        "output shows rose-gold meeting white-gold at a crisp boundary.",
+        "structurally sound joint. Two-tone (or three-tone) metal is correct "
+        "and intended — do not unify, average, or harmonize metal colors "
+        "across components. If one component is rose-gold and the other is "
+        "white-gold, the output shows rose-gold meeting white-gold at a "
+        "crisp boundary. If three different metal colors appear across the "
+        "components, all three appear in the output.",
+
+        "ANTI-COPY RULE (CRITICAL)\n"
+        "- The output MUST NOT be a copy or near-copy of any single "
+        "reference image. It is a NEW piece that visibly fuses parts from "
+        "every reference.\n"
+        "- The output MUST visibly contain the specified component from "
+        "EVERY reference image listed above. Missing any one of them is a "
+        "failure.\n"
+        "- If your output looks like Image 1 with no Image 2 elements (or "
+        "vice versa), discard it and try again — that is the most common "
+        "failure mode for this task.\n"
+        "- Specifically: a viewer comparing the output side-by-side with "
+        "the references must immediately see which part came from which "
+        "reference.",
 
         "PRESERVATION RULES (STRICT)\n"
         "- Do NOT add stones, diamonds, pavé, channel-set stones, halos, "
@@ -451,6 +473,11 @@ def build_combine_prompt(image_specs, additional_specs):
         "- Do NOT change band thickness, shoulder profile, prong count, "
         "prong shape, or stone size.\n"
         "- Do NOT redesign, stylize, or reinterpret — copy.",
+
+        f"VERIFY BEFORE FINALIZING\n{component_checklist}\n"
+        f"- Does each extracted component keep its original metal color? It MUST.\n"
+        f"- Is the output clearly a NEW piece (not a copy of any single reference)? "
+        f"It MUST be.",
     ]
 
     if additional_specs.get("metal"):
@@ -606,7 +633,11 @@ for i in range(num_images):
 
         desc = st.text_area(
             "Component to extract",
-            placeholder="e.g., 'shank design' or 'head with halo setting'",
+            placeholder=(
+                "Be specific — include color, finish, and detail.\n"
+                "e.g., 'pavé white-gold shank with rose-gold accents' "
+                "or 'yellow-gold 6-prong solitaire head'"
+            ),
             key=f"desc_{i}",
             height=80,
             label_visibility="collapsed",
