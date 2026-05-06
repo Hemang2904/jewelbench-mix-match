@@ -427,66 +427,94 @@ def generate_combined_design(image_urls, prompt):
 
 
 VIEW_PROMPTS = {
-    "Top View": (
-        "Re-render this EXACT same ring design from a directly overhead "
-        "top-down camera angle, looking straight down at the head and crown "
-        "of the ring with the band visible curving around below. Preserve "
-        "every single detail of the design — same head shape, same shank "
-        "profile, same metal colors (rose-gold stays rose-gold, white-gold "
-        "stays white-gold, etc.), same stones, same proportions, same "
-        "surface finish, same prong count. ONLY the camera angle changes. "
-        "Pure white seamless background RGB(255,255,255), subtle soft shadow, "
-        "professional jewelry product photography, ultra-sharp macro detail, "
-        "studio lighting, centered composition."
-    ),
-    "Side Profile": (
-        "Re-render this EXACT same ring design from a pure side profile "
-        "view (90-degree side view), showing the full thickness of the band "
-        "and the silhouette of the head from the side. Preserve every "
-        "single detail of the design — same head shape, same shank profile, "
-        "same metal colors, same stones, same proportions, same surface "
-        "finish, same prong count. ONLY the camera angle changes. Pure white "
-        "seamless background RGB(255,255,255), subtle soft shadow, "
-        "professional jewelry product photography, ultra-sharp macro detail."
-    ),
-    "Front View": (
-        "Re-render this EXACT same ring design from a head-on front camera "
-        "angle, looking directly at the face of the center stone with the "
-        "band curving away symmetrically on both sides. Preserve every "
-        "single detail of the design — same head shape, same shank profile, "
-        "same metal colors, same stones, same proportions, same surface "
-        "finish, same prong count. ONLY the camera angle changes. Pure white "
-        "seamless background RGB(255,255,255), subtle soft shadow, "
-        "professional jewelry product photography, ultra-sharp macro detail."
-    ),
-    "Macro Detail": (
-        "Re-render this EXACT same ring design as an extreme macro close-up "
-        "of the head and setting, filling the frame with the crown, prongs, "
-        "center stone facets, and immediate shoulder area. Preserve every "
-        "single detail of the design — same head shape, same metal colors, "
-        "same stone arrangement, same prong count, same surface finish. "
-        "ONLY the camera distance and focal length change. Pure white "
-        "seamless background, subtle soft shadow, professional jewelry "
-        "product photography, ultra-sharp macro."
-    ),
+    "Top View": {
+        "model": "fal-ai/bytedance/seedream/v4/edit",
+        "prompt": (
+            "Re-render this EXACT same ring design from a directly overhead "
+            "top-down camera angle, looking straight down at the head and "
+            "crown with the band visible curving around below. Preserve "
+            "every single detail — same head shape, shank profile, metal "
+            "colors (rose-gold stays rose-gold, white-gold stays white-gold), "
+            "stones, proportions, surface finish, prong count. ONLY the "
+            "camera angle changes. Pure white seamless background "
+            "RGB(255,255,255), subtle soft shadow, professional jewelry "
+            "product photography, ultra-sharp macro detail."
+        ),
+    },
+    "Side Profile": {
+        "model": "fal-ai/bytedance/seedream/v4/edit",
+        "prompt": (
+            "Re-render this EXACT same ring design from a pure side profile "
+            "view (90-degree side view), showing the full thickness of the "
+            "band and the silhouette of the head from the side. Preserve "
+            "every single detail. ONLY the camera angle changes. Pure white "
+            "seamless background RGB(255,255,255), subtle soft shadow, "
+            "professional jewelry product photography, ultra-sharp macro detail."
+        ),
+    },
+    "Front View": {
+        "model": "fal-ai/bytedance/seedream/v4/edit",
+        "prompt": (
+            "Re-render this EXACT same ring design from a head-on front "
+            "camera angle, looking directly at the face of the center stone "
+            "with the band curving away symmetrically on both sides. "
+            "Preserve every single detail. ONLY the camera angle changes. "
+            "Pure white seamless background RGB(255,255,255), subtle soft "
+            "shadow, professional jewelry product photography, ultra-sharp "
+            "macro detail."
+        ),
+    },
+    "Macro Detail": {
+        "model": "fal-ai/bytedance/seedream/v4/edit",
+        "prompt": (
+            "Re-render this EXACT same ring design as an extreme macro "
+            "close-up of the head and setting, filling the frame with the "
+            "crown, prongs, center stone facets, and immediate shoulder "
+            "area. Preserve every detail. ONLY the camera distance and "
+            "focal length change. Pure white seamless background, subtle "
+            "soft shadow, professional jewelry product photography, "
+            "ultra-sharp macro."
+        ),
+    },
+    "Technical Drawing": {
+        "model": "fal-ai/gemini-25-flash-image/edit",
+        "prompt": (
+            "Re-render this EXACT ring design as a professional jewelry "
+            "technical specification drawing in pure side profile view. "
+            "Add a clean dimensional callout system: thin dark grey arrow "
+            "lines pointing to the band width, the head/setting height, "
+            "the center stone diameter, and the total ring height, each "
+            "labeled in millimeters using standard 1.0-carat round-brilliant "
+            "engagement-ring proportions (band ≈ 2.0 mm, head ≈ 7.0 mm "
+            "diameter, center stone ≈ 6.5 mm, total height ≈ 10.0 mm). "
+            "Add a small 10 mm scale bar in the bottom-right corner for "
+            "reference. The ring itself is rendered photorealistically in "
+            "its actual metal colors and stones — preserve every design "
+            "detail (head shape, prong count, shank profile, decoration). "
+            "Pure white seamless background RGB(255,255,255). The dimension "
+            "lines, arrows, mm labels, and scale bar are crisp dark-grey "
+            "vector overlays drawn ON TOP of the photorealistic ring."
+        ),
+    },
 }
 
 
-def generate_view(base_url, view_prompt):
+def generate_view(base_url, view_prompt, model="fal-ai/bytedance/seedream/v4/edit"):
     """Re-render a finished design from a different camera angle.
 
     Always uses the originally generated combined design as the source so
     every view is consistent (no drift from re-using a previous view).
     """
-    return fal_client.subscribe(
-        "fal-ai/bytedance/seedream/v4/edit",
-        arguments={
-            "image_urls": [base_url],
-            "prompt": view_prompt,
-            "num_images": 1,
-            "image_size": "auto_2K",
-        },
-    )
+    args = {
+        "image_urls": [base_url],
+        "prompt": view_prompt,
+        "num_images": 1,
+    }
+    if "seedream" in model:
+        args["image_size"] = "auto_2K"
+    else:
+        args["output_format"] = "png"
+    return fal_client.subscribe(model, arguments=args)
 
 
 def extract_image_url(result):
@@ -788,17 +816,52 @@ if st.session_state.get("last_results"):
     st.markdown("<br>", unsafe_allow_html=True)
     st.markdown("""
     <div class="section-title">Additional Views</div>
-    <div class="section-subtitle">Re-render the generated design from different camera angles. Every view uses the original generated design as the source — views never derive from previous views, so the design stays consistent.</div>
+    <div class="section-subtitle">Re-render the generated design from different camera angles, plus a Technical Drawing with mm dimensions and a 10mm scale bar. Every view uses the original generated design as the source. Use ⚡ Generate All to fan out all 5 views in parallel (~60s, ~$0.30 total).</div>
     """, unsafe_allow_html=True)
 
     view_names = list(VIEW_PROMPTS.keys())
+
+    # Batch button: render every view in parallel.
+    if st.button("⚡ Generate All Views (parallel)", key="view_btn_all", width="stretch", type="primary"):
+        from concurrent.futures import ThreadPoolExecutor, as_completed
+        with st.spinner(f"Rendering {len(view_names)} views in parallel (~60s)..."):
+            results = {}
+            errors = {}
+            with ThreadPoolExecutor(max_workers=len(view_names)) as executor:
+                futures = {
+                    executor.submit(
+                        generate_view,
+                        base_design_url,
+                        VIEW_PROMPTS[name]["prompt"],
+                        VIEW_PROMPTS[name]["model"],
+                    ): name
+                    for name in view_names
+                }
+                for future in as_completed(futures):
+                    name = futures[future]
+                    try:
+                        result = future.result()
+                        url = extract_image_url(result)
+                        if url:
+                            results[name] = url
+                        else:
+                            errors[name] = "no image returned"
+                    except Exception as e:
+                        errors[name] = str(e)
+            if results:
+                st.session_state.setdefault("views", {}).update(results)
+            for n, msg in errors.items():
+                st.warning(f"{n} failed: {msg}")
+
+    # Individual buttons for one-off retries.
     btn_cols = st.columns(len(view_names), gap="small")
     for idx, view_name in enumerate(view_names):
         with btn_cols[idx]:
             if st.button(view_name, key=f"view_btn_{view_name}", width="stretch"):
                 with st.spinner(f"Rendering {view_name}..."):
                     try:
-                        result = generate_view(base_design_url, VIEW_PROMPTS[view_name])
+                        cfg = VIEW_PROMPTS[view_name]
+                        result = generate_view(base_design_url, cfg["prompt"], cfg["model"])
                         url = extract_image_url(result)
                         if url:
                             st.session_state.setdefault("views", {})[view_name] = url
