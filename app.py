@@ -3,6 +3,7 @@ import fal_client
 import os
 import time
 from prompts import build_combine_prompt
+from preprocessing import strip_background_to_white
 try:
     from dotenv import load_dotenv
     load_dotenv()
@@ -395,8 +396,13 @@ div[data-testid="stExpander"] {
 # --- HELPER FUNCTIONS ---
 
 def upload_to_fal(uploaded_file):
+    """Upload a reference image. Strips the background and composites onto pure
+    white before returning the URL — Seedream then has a clean source and
+    won't average a tinted backdrop into the final output.
+    """
     img_bytes = uploaded_file.getvalue()
-    return fal_client.upload(img_bytes, content_type=uploaded_file.type or "image/png")
+    content_type = uploaded_file.type or "image/png"
+    return strip_background_to_white(img_bytes, content_type=content_type)
 
     return "\n\n".join(sections)
 
@@ -701,7 +707,7 @@ if generate_clicked:
     elif not has_descriptions:
         st.warning("Describe what component to use from each image.")
     else:
-        progress = st.progress(0, text="Phase 1/3: Uploading references to fal.ai...")
+        progress = st.progress(0, text="Phase 1/3: Cleaning reference backgrounds and uploading to fal.ai...")
 
         # PHASE 1: Upload each reference natively (multi-image models accept a list of URLs)
         active_specs = [s for s in image_specs if s["file"] and s["description"]]

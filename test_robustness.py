@@ -24,6 +24,7 @@ import fal_client  # noqa: E402
 # Same builder the live Streamlit app uses.
 sys.path.insert(0, str(Path(__file__).parent))
 from prompts import build_combine_prompt  # noqa: E402
+from preprocessing import strip_background_to_white  # noqa: E402
 
 
 INPUT_DIR = Path("/tmp/jewel_test_inputs")
@@ -67,8 +68,10 @@ PERMUTATIONS = [
 
 
 def upload(path: Path) -> str:
-    print(f"  uploading {path.name} ...")
-    return fal_client.upload_file(str(path))
+    print(f"  bg-stripping + uploading {path.name} ...")
+    suffix = path.suffix.lower()
+    content_type = "image/jpeg" if suffix in {".jpg", ".jpeg"} else "image/png"
+    return strip_background_to_white(path.read_bytes(), content_type=content_type)
 
 
 def make_image_specs(head_id: str, shank_id: str):
