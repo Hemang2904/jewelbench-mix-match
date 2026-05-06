@@ -3,7 +3,7 @@ import fal_client
 import os
 import time
 from prompts import build_combine_prompt
-from preprocessing import strip_background_to_white
+from preprocessing import strip_background_to_white, strip_url_to_white, enrich_description
 try:
     from dotenv import load_dotenv
     load_dotenv()
@@ -735,9 +735,9 @@ if generate_clicked:
     elif not has_descriptions:
         st.warning("Describe what component to use from each image.")
     else:
-        progress = st.progress(0, text="Phase 1/3: Cleaning reference backgrounds and uploading to fal.ai...")
+        progress = st.progress(0, text="Phase 1/4: Cleaning reference backgrounds and uploading to fal.ai...")
 
-        # PHASE 1: Upload each reference natively (multi-image models accept a list of URLs)
+        # PHASE 1: Upload + bg-strip each reference natively
         active_specs = [s for s in image_specs if s["file"] and s["description"]]
         try:
             image_urls = [upload_to_fal(s["file"]) for s in active_specs]
@@ -745,15 +745,29 @@ if generate_clicked:
             st.error(f"Reference upload failed: {e}")
             st.stop()
 
-        # PHASE 2: Build the combination prompt directly from user descriptions
-        progress.progress(0.3, text="Phase 2/3: Building combination prompt...")
-        combine_prompt = build_combine_prompt(image_specs, additional_specs)
+        # PHASE 2: Vision-LLM enrichment of terse descriptions
+        progress.progress(0.25, text="Phase 2/4: Reading each reference image to enrich your descriptions...")
+        enriched_specs = []
+        for spec, url in zip(active_specs, image_urls):
+            original = spec["description"]
+            enriched = enrich_description(url, original)
+            enriched_specs.append({"file": spec["file"], "description": enriched, "_original": original})
 
-        with st.expander("Generation Prompt", expanded=False):
+        # PHASE 3: Build the combination prompt
+        progress.progress(0.4, text="Phase 3/4: Building combination prompt...")
+        combine_prompt = build_combine_prompt(enriched_specs, additional_specs)
+
+        with st.expander("Enriched Descriptions & Generation Prompt", expanded=False):
+            st.markdown("**Vision-enriched descriptions** (used to build the prompt):")
+            for i, s in enumerate(enriched_specs):
+                st.markdown(f"**Image {i+1}** — original: *“{s['_original']}”*")
+                st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;enriched: **{s['description']}**")
+            st.markdown("---")
+            st.markdown("**Master prompt sent to Seedream:**")
             st.code(combine_prompt, language="text")
 
-        # PHASE 3: Generate via multi-image edit models
-        progress.progress(0.45, text="Phase 3/3: Generating combined designs...")
+        # PHASE 4: Generate via multi-image edit models
+        progress.progress(0.55, text="Phase 4/4: Generating combined designs...")
         strategies = generate_combined_design(image_urls, combine_prompt)
         results = []
         strategy_names = []
@@ -761,13 +775,19 @@ if generate_clicked:
         if strategies:
             for si, strategy in enumerate(strategies):
                 progress.progress(
-                    0.5 + (si + 1) / (len(strategies) * 2),
-                    text=f"Phase 3/3: Rendering variation {si+1}/{len(strategies)} ({strategy['name']})...",
+                    0.55 + (si + 1) / (len(strategies) * 3),
+                    text=f"Phase 4/4: Rendering variation {si+1}/{len(strategies)} ({strategy['name']})...",
                 )
                 try:
                     result = strategy["fn"]()
                     url = extract_image_url(result)
                     if url:
+                        # Post-strip the output background so we always end up
+                        # on RGB(255,255,255) regardless of Seedream variance.
+                        try:
+                            url = strip_url_to_white(url)
+                        except Exception:
+                            pass  # keep original URL if post-strip fails
                         results.append(url)
                         strategy_names.append(strategy["name"])
                 except Exception as e:
