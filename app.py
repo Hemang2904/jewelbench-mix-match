@@ -517,6 +517,24 @@ def build_combine_prompt(image_specs, additional_specs):
         "- Do NOT add milgrain edges, engraving lines, or hatching that is "
         "not in the source.",
 
+        "MANUFACTURABILITY (CRITICAL)\n"
+        "- The output must be a PHYSICALLY REALIZABLE piece of jewelry that "
+        "could be cast, set, and worn in real life.\n"
+        "- The INTERIOR of the shank (the surface that touches the finger) "
+        "MUST be smooth and ROUND/CIRCULAR — never hexagonal, octagonal, "
+        "polygonal, faceted, or angular. Even when the OUTSIDE of the "
+        "shank has flat or geometric faces (architectural shanks, square "
+        "profiles, etc.), the INSIDE remains a smooth circle so the ring "
+        "fits a finger.\n"
+        "- Every prong, claw, gallery, halo, and decorative element must "
+        "be structurally connected to the metal — no floating elements, "
+        "no impossible cantilevers, no detached components.\n"
+        "- Every stone must sit in a plausible setting (prong, bezel, "
+        "channel, pavé, flush) with visible metal supporting it from below "
+        "and around. No stones floating in air.\n"
+        "- Realistic proportions and weight balance — the piece must look "
+        "like jewelry a real craftsman could actually fabricate.",
+
         "SYMMETRY\n"
         "- Decorative elements (pavé stones, channel-set stones, side "
         "diamonds, milgrain, halos, prongs, scrollwork) MUST appear "
@@ -551,6 +569,8 @@ def build_combine_prompt(image_specs, additional_specs):
         f"- Is the background pure white RGB(255,255,255), not gray? It MUST be.\n"
         f"- Has any non-extracted component (e.g., the shank of Image 1 when "
         f"only its head was extracted) leaked into the output? It MUST NOT.\n"
+        f"- Is the interior of the shank smooth and round (manufacturable, "
+        f"wearable on a real finger)? It MUST be.\n"
         f"- Is the output clearly a NEW piece (not a copy of any single reference)? "
         f"It MUST be.",
     ]
@@ -602,6 +622,69 @@ def generate_combined_design(image_urls, prompt):
             ),
         },
     ]
+
+
+VIEW_PROMPTS = {
+    "Top View": (
+        "Re-render this EXACT same ring design from a directly overhead "
+        "top-down camera angle, looking straight down at the head and crown "
+        "of the ring with the band visible curving around below. Preserve "
+        "every single detail of the design — same head shape, same shank "
+        "profile, same metal colors (rose-gold stays rose-gold, white-gold "
+        "stays white-gold, etc.), same stones, same proportions, same "
+        "surface finish, same prong count. ONLY the camera angle changes. "
+        "Pure white seamless background RGB(255,255,255), subtle soft shadow, "
+        "professional jewelry product photography, ultra-sharp macro detail, "
+        "studio lighting, centered composition."
+    ),
+    "Side Profile": (
+        "Re-render this EXACT same ring design from a pure side profile "
+        "view (90-degree side view), showing the full thickness of the band "
+        "and the silhouette of the head from the side. Preserve every "
+        "single detail of the design — same head shape, same shank profile, "
+        "same metal colors, same stones, same proportions, same surface "
+        "finish, same prong count. ONLY the camera angle changes. Pure white "
+        "seamless background RGB(255,255,255), subtle soft shadow, "
+        "professional jewelry product photography, ultra-sharp macro detail."
+    ),
+    "Front View": (
+        "Re-render this EXACT same ring design from a head-on front camera "
+        "angle, looking directly at the face of the center stone with the "
+        "band curving away symmetrically on both sides. Preserve every "
+        "single detail of the design — same head shape, same shank profile, "
+        "same metal colors, same stones, same proportions, same surface "
+        "finish, same prong count. ONLY the camera angle changes. Pure white "
+        "seamless background RGB(255,255,255), subtle soft shadow, "
+        "professional jewelry product photography, ultra-sharp macro detail."
+    ),
+    "Macro Detail": (
+        "Re-render this EXACT same ring design as an extreme macro close-up "
+        "of the head and setting, filling the frame with the crown, prongs, "
+        "center stone facets, and immediate shoulder area. Preserve every "
+        "single detail of the design — same head shape, same metal colors, "
+        "same stone arrangement, same prong count, same surface finish. "
+        "ONLY the camera distance and focal length change. Pure white "
+        "seamless background, subtle soft shadow, professional jewelry "
+        "product photography, ultra-sharp macro."
+    ),
+}
+
+
+def generate_view(base_url, view_prompt):
+    """Re-render a finished design from a different camera angle.
+
+    Always uses the originally generated combined design as the source so
+    every view is consistent (no drift from re-using a previous view).
+    """
+    return fal_client.subscribe(
+        "fal-ai/bytedance/seedream/v4/edit",
+        arguments={
+            "image_urls": [base_url],
+            "prompt": view_prompt,
+            "num_images": 1,
+            "image_size": "auto_2K",
+        },
+    )
 
 
 def extract_image_url(result):
@@ -891,8 +974,55 @@ if generate_clicked:
             st.session_state["last_results"] = results
             st.session_state["last_prompt"] = combine_prompt
             st.session_state["last_image_urls"] = image_urls
+            st.session_state["views"] = {}
         else:
             st.error("No images were generated. Check your FAL_KEY and try again.")
+
+
+# --- ADDITIONAL VIEWS SECTION ---
+if st.session_state.get("last_results"):
+    base_design_url = st.session_state["last_results"][0]
+
+    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown("""
+    <div class="section-title">Additional Views</div>
+    <div class="section-subtitle">Re-render the generated design from different camera angles. Every view uses the original generated design as the source — views never derive from previous views, so the design stays consistent.</div>
+    """, unsafe_allow_html=True)
+
+    view_names = list(VIEW_PROMPTS.keys())
+    btn_cols = st.columns(len(view_names), gap="small")
+    for idx, view_name in enumerate(view_names):
+        with btn_cols[idx]:
+            if st.button(view_name, key=f"view_btn_{view_name}", width="stretch"):
+                with st.spinner(f"Rendering {view_name}..."):
+                    try:
+                        result = generate_view(base_design_url, VIEW_PROMPTS[view_name])
+                        url = extract_image_url(result)
+                        if url:
+                            st.session_state.setdefault("views", {})[view_name] = url
+                        else:
+                            st.warning(f"{view_name} produced no image.")
+                    except Exception as e:
+                        st.error(f"{view_name} failed: {e}")
+
+    if st.session_state.get("views"):
+        st.markdown("<br>", unsafe_allow_html=True)
+        view_items = list(st.session_state["views"].items())
+        view_result_cols = st.columns(min(len(view_items), 4), gap="medium")
+        for idx, (vname, vurl) in enumerate(view_items):
+            with view_result_cols[idx % len(view_result_cols)]:
+                st.markdown('<div class="result-card">', unsafe_allow_html=True)
+                st.image(vurl, width="stretch")
+                st.markdown(
+                    f"""<div class="result-label">
+                        <span>{vname}</span>
+                        <a href="{vurl}" target="_blank"
+                           style="color:var(--gold);text-decoration:none;font-size:0.8rem;font-weight:600;">
+                            Download
+                        </a>
+                    </div></div>""",
+                    unsafe_allow_html=True,
+                )
 
 
 # --- REFINEMENT SECTION ---
