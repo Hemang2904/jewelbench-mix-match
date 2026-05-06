@@ -558,6 +558,20 @@ def build_combine_prompt(image_specs, additional_specs):
         "prong shape, or stone size.\n"
         "- Do NOT redesign, stylize, or reinterpret — copy.",
 
+        "COVERAGE / EXTENT (CRITICAL)\n"
+        "- Preserve the EXTENT and COVERAGE area of every decorative "
+        "feature, not just its presence. If the source shank has pavé "
+        "running the FULL LENGTH of the band (from shoulder to shoulder), "
+        "the output shank has pavé running the FULL LENGTH. Do NOT shrink "
+        "full-length pavé into shoulder-only pavé.\n"
+        "- If a halo wraps fully around the center stone in the source, it "
+        "wraps fully in the output. Do NOT show a partial halo.\n"
+        "- If milgrain, engraving, or filigree spans an entire edge in the "
+        "source, it spans the entire edge in the output. Do NOT shorten "
+        "or interrupt continuous decoration.\n"
+        "- Match the START point and END point of every decorative band, "
+        "not just the style.",
+
         f"VERIFY BEFORE FINALIZING\n{component_checklist}\n"
         f"- Does each extracted component keep its original metal color? It MUST.\n"
         f"- Does each extracted component keep its original SHAPE/silhouette "
@@ -566,7 +580,10 @@ def build_combine_prompt(image_specs, additional_specs):
         f"source (polished defaults to polished, no added brushed/matte)? They MUST be.\n"
         f"- Are decorative elements (pavé, prongs, side stones) symmetric "
         f"across both shoulders / both sides? They MUST be.\n"
-        f"- Is the background pure white RGB(255,255,255), not gray? It MUST be.\n"
+        f"- Does decoration cover the SAME EXTENT as in the source (full-length "
+        f"pavé stays full-length, not shrunk to shoulders only)? It MUST.\n"
+        f"- Is the background pure white RGB(255,255,255) — not gray, cream, "
+        f"or warm-tinted? It MUST be.\n"
         f"- Has any non-extracted component (e.g., the shank of Image 1 when "
         f"only its head was extracted) leaked into the output? It MUST NOT.\n"
         f"- Is the interior of the shank smooth and round (manufacturable, "
@@ -594,12 +611,16 @@ def build_combine_prompt(image_specs, additional_specs):
     sections.append(
         "OUTPUT\n"
         "One ring on a PURE WHITE seamless background — RGB(255,255,255), "
-        "not gray, not cream, not off-white, not tinted — with only a "
-        "subtle soft shadow directly under the piece. Professional jewelry "
-        "product photography, ultra-sharp macro detail, even studio "
-        "lighting, centered three-quarter angle, the piece occupying "
-        "roughly 70% of the frame. No hands, no models, no props, no text, "
-        "no watermarks, no logos, no collage of references."
+        "not gray, not cream, not off-white, not ivory, not warm-tinted, "
+        "not tinted — with only a subtle soft shadow directly under the "
+        "piece. IGNORE the background color of any input reference image; "
+        "if a reference has a cream or tinted background, the output "
+        "background is STILL pure white RGB(255,255,255). Professional "
+        "jewelry product photography, neutral-balanced studio lighting "
+        "(no warm cast), ultra-sharp macro detail, centered three-quarter "
+        "angle, the piece occupying roughly 70% of the frame. No hands, "
+        "no models, no props, no text, no watermarks, no logos, no "
+        "collage of references."
     )
 
     return "\n\n".join(sections)
