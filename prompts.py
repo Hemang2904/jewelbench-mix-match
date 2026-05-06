@@ -4,6 +4,30 @@ Lives in its own module so it can be imported by both the Streamlit app
 and offline test harnesses without dragging in UI code.
 """
 
+import re
+
+# Cut names that are ALSO gem names — Seedream tends to render an
+# "emerald-cut diamond" as an actual green emerald. Replace the trigger
+# word in-place with an unambiguous shape synonym + explicit color anchor.
+_CUT_REWRITES = [
+    (r"\bemerald[\s-]cut\b",
+     "rectangular step-cut (the shape jewelers call emerald-cut, "
+     "ALWAYS a colorless WHITE diamond, NEVER a green emerald gemstone)"),
+    (r"\bmarquise[\s-]cut\b",
+     "pointed-oval cut (the shape jewelers call marquise-cut, "
+     "ALWAYS a colorless WHITE diamond, NEVER a colored gem)"),
+    (r"\basscher[\s-]cut\b",
+     "square step-cut (the shape jewelers call asscher-cut, "
+     "ALWAYS a colorless WHITE diamond)"),
+]
+
+
+def _disambiguate_cut(desc: str) -> str:
+    """Rewrite cut names that are also gem names so the model anchors on shape, not color."""
+    for pattern, replacement in _CUT_REWRITES:
+        desc = re.sub(pattern, replacement, desc, flags=re.IGNORECASE)
+    return desc
+
 
 def build_combine_prompt(image_specs, additional_specs):
     """Master prompt tuned for fal-ai/bytedance/seedream/v4/edit.
@@ -17,7 +41,10 @@ def build_combine_prompt(image_specs, additional_specs):
 
     ref_lines = []
     component_summary = []
-    extracted_descs = [s["description"].strip().rstrip(".") for s in active_specs]
+    extracted_descs = [
+        _disambiguate_cut(s["description"].strip().rstrip("."))
+        for s in active_specs
+    ]
     for i, spec in enumerate(active_specs):
         n = i + 1
         desc = extracted_descs[i]
@@ -47,9 +74,9 @@ def build_combine_prompt(image_specs, additional_specs):
     components_text = " + ".join(component_summary)
 
     component_checklist = "\n".join(
-        f"- Is the {spec['description'].strip().rstrip('.')} from Image {i+1} "
+        f"- Is the {extracted_descs[i]} from Image {i+1} "
         f"visibly present in the output? It MUST be."
-        for i, spec in enumerate(active_specs)
+        for i, _ in enumerate(active_specs)
     )
 
     sections = [
@@ -202,6 +229,25 @@ def build_combine_prompt(image_specs, additional_specs):
         "prong shape, or stone size.\n"
         "- Do NOT redesign, stylize, or reinterpret — copy.",
 
+        "STONE COLOR / CUT DISAMBIGUATION (CRITICAL)\n"
+        "- All center stones, side stones, accent stones, and pavé stones "
+        "in the output are COLORLESS WHITE DIAMONDS (D–F color, ice-clear "
+        "brilliance, white sparkle), UNLESS the source image clearly shows "
+        "a colored gemstone (visibly green / blue / red / pink / etc.) "
+        "or the user's description explicitly specifies a colored gem.\n"
+        "- Cut names refer ONLY to the geometric SHAPE of the stone, NEVER "
+        "to its material or color. Treat them as shape labels only:\n"
+        "  • emerald-cut  = rectangular step-cut DIAMOND  (NOT a green emerald)\n"
+        "  • marquise-cut = pointed oval DIAMOND          (NOT a colored gem)\n"
+        "  • princess-cut = square brilliant DIAMOND\n"
+        "  • asscher-cut  = square step-cut DIAMOND\n"
+        "  • pear / oval / cushion / radiant / heart / baguette / "
+        "trillion / round = corresponding-shape DIAMONDS\n"
+        "- Common failure to avoid: rendering an 'emerald-cut diamond' as "
+        "an actual green emerald gemstone. Do NOT do this. If the source "
+        "stone is colorless and faceted like ice, the output stone is "
+        "colorless and faceted like ice — only the shape carries over.",
+
         "COVERAGE / EXTENT (CRITICAL)\n"
         "- Preserve the EXTENT and COVERAGE area of every decorative "
         "feature, not just its presence. If the source shank has pavé "
@@ -251,6 +297,9 @@ def build_combine_prompt(image_specs, additional_specs):
     sections.append(
         f"VERIFY BEFORE FINALIZING\n{component_checklist}\n"
         f"- Does each extracted component keep its original metal color? It MUST.\n"
+        f"- Are all stones colorless white diamonds (unless the source clearly "
+        f"shows a colored gemstone)? They MUST be — an 'emerald-cut' is a "
+        f"rectangular DIAMOND, not a green emerald.\n"
         f"- Does each extracted component keep its original SHAPE/silhouette "
         f"(petals, halos, prong count, band profile)? It MUST.\n"
         f"- Are all surfaces in the output finished the same way as their "
