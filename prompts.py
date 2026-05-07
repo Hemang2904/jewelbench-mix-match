@@ -80,9 +80,17 @@ def build_combine_prompt(image_specs, additional_specs):
     )
 
     sections = [
-        "Combine the reference images into ONE single new piece of jewelry. "
-        "This is a precise part-swap — copy each extracted component exactly. "
-        "Only the joint where components meet may be invented.",
+        "OUTPUT EXACTLY ONE (1) RING. NOT two rings. NOT a wedding-band "
+        "stack. NOT overlapping or interlocked rings. NOT a side-by-side "
+        "collage. NOT one ring with a duplicate behind it. The result must "
+        "be a SINGLE piece of jewelry — one continuous shank with one head "
+        "fused into it. If the output contains more than one ring object, "
+        "it is a failure.",
+
+        "Combine the reference images into that ONE single new piece of "
+        "jewelry. This is a precise part-swap — copy each extracted "
+        "component exactly. Only the joint where components meet may be "
+        "invented.",
 
         f"EXTRACT FROM EACH IMAGE\n{refs_block}",
 
@@ -322,7 +330,10 @@ def build_combine_prompt(image_specs, additional_specs):
         f"- Are BOTH shoulders visible in the 3/4 view, and do they "
         f"mirror each other in decoration and shape? They MUST.\n"
         f"- Is the output clearly a NEW piece (not a copy of any single reference)? "
-        f"It MUST be."
+        f"It MUST be.\n"
+        f"- Does the output show EXACTLY ONE ring object (not two rings "
+        f"overlapping, not a wedding-band stack, not a side-by-side pair)? "
+        f"It MUST."
     )
 
     return "\n\n".join(sections)
