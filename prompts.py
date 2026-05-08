@@ -62,11 +62,13 @@ def build_combine_prompt(image_specs, additional_specs):
             "must NOT appear in the output."
         )
         ref_lines.append(
-            f"- From Image {n}: take ONLY the {desc}. Reproduce it 1:1 — "
-            f"exact metal color (rose-gold stays rose-gold, yellow-gold stays "
-            f"yellow-gold, white-gold stays white-gold, platinum stays "
-            f"platinum), shape, prongs, stones, surface finish, profile, "
-            f"width, taper, and proportions. {ignore_clause}"
+            f"- From Image {n}: incorporate the {desc} into the new ring "
+            f"and fuse it seamlessly with the other component(s). Reproduce "
+            f"this incorporated part 1:1 — exact metal color (rose-gold "
+            f"stays rose-gold, yellow-gold stays yellow-gold, white-gold "
+            f"stays white-gold, platinum stays platinum), shape, prongs, "
+            f"stones, surface finish, profile, width, taper, and "
+            f"proportions. {ignore_clause}"
         )
         component_summary.append(f"the {desc} (from Image {n})")
 
@@ -80,19 +82,24 @@ def build_combine_prompt(image_specs, additional_specs):
     )
 
     sections = [
-        "OUTPUT EXACTLY ONE (1) RING. NOT two rings. NOT a wedding-band "
+        "OUTPUT EXACTLY ONE (1) FULLY-ASSEMBLED RING — a single complete "
+        "wearable piece of jewelry. NOT two rings. NOT a wedding-band "
         "stack. NOT overlapping or interlocked rings. NOT a side-by-side "
-        "collage. NOT one ring with a duplicate behind it. The result must "
-        "be a SINGLE piece of jewelry — one continuous shank with one head "
-        "fused into it. If the output contains more than one ring object, "
-        "it is a failure.",
+        "collage. NOT one ring with a duplicate behind it. NOT floating "
+        "or disconnected components. NOT an exploded-view diagram showing "
+        "parts separately. NOT a 'before-assembly' layout. NOT a head "
+        "alone. NOT a shank alone. The head and shank MUST be FUSED into "
+        "ONE continuous cast piece of metal with no gap, no blank space, "
+        "no air, between them. If any part of the output looks detached "
+        "or hovering, it is a failure.",
 
-        "Combine the reference images into that ONE single new piece of "
-        "jewelry. This is a precise part-swap — copy each extracted "
-        "component exactly. Only the joint where components meet may be "
-        "invented.",
+        "Assemble the new ring by INCORPORATING the specified components "
+        "from the reference images. This is a precise part-swap — each "
+        "incorporated component is reproduced exactly, then FUSED into a "
+        "single complete ring. Only the joint where components meet may "
+        "be invented.",
 
-        f"EXTRACT FROM EACH IMAGE\n{refs_block}",
+        f"ASSEMBLE THE NEW RING USING THESE SOURCES\n{refs_block}",
 
         "CONSTRUCTION\n"
         f"Assemble: {components_text}. Connect them with a clean, "
@@ -277,6 +284,9 @@ def build_combine_prompt(image_specs, additional_specs):
             "replacing the original metal colors of all references. This "
             "overrides the color preservation rules above."
         )
+        # Capture the override so the validator's target summary can reflect
+        # the final intended metal rather than the per-reference colors.
+        additional_specs["_metal_applied"] = additional_specs["metal"]
 
     if additional_specs.get("stones"):
         sections.append(f"STONES\n{additional_specs['stones']}")
@@ -332,8 +342,103 @@ def build_combine_prompt(image_specs, additional_specs):
         f"- Is the output clearly a NEW piece (not a copy of any single reference)? "
         f"It MUST be.\n"
         f"- Does the output show EXACTLY ONE ring object (not two rings "
-        f"overlapping, not a wedding-band stack, not a side-by-side pair)? "
-        f"It MUST."
+        f"overlapping, not a wedding-band stack, not a side-by-side pair, "
+        f"not floating disconnected components, not an exploded-view of "
+        f"head + shank as separate objects)? It MUST.\n"
+        f"- Are the head and shank FUSED into one continuous metal piece "
+        f"with no gap or air between them? They MUST be."
     )
 
     return "\n\n".join(sections)
+
+
+def build_target_summary(image_specs, additional_specs):
+    """One plain-language paragraph describing the intended output.
+
+    Used by the AI validator as the ground truth to compare the generated
+    image against. Stripped of all rule blocks, anti-failure rants, and
+    formatting directives — those are for the image model, not the
+    reviewer.
+    """
+    active_specs = [s for s in image_specs if s.get("file") and s.get("description")]
+    parts = [
+        _disambiguate_cut(s["description"].strip().rstrip("."))
+        for s in active_specs
+    ]
+    components_text = " + ".join(f"the {p}" for p in parts) if parts else "the assembled ring"
+
+    sentences = [
+        f"A single fully-assembled ring that fuses {components_text} "
+        "into one continuous cast piece, with the head and shank "
+        "structurally connected via a proper undergallery / basket."
+    ]
+
+    if additional_specs.get("_metal_applied") or additional_specs.get("metal"):
+        metal = additional_specs.get("_metal_applied") or additional_specs["metal"]
+        sentences.append(f"The entire piece is rendered in {metal}.")
+    else:
+        sentences.append(
+            "Each extracted component keeps its original metal color "
+            "(rose-gold stays rose-gold, white-gold stays white-gold, "
+            "yellow-gold stays yellow-gold, platinum stays platinum)."
+        )
+
+    if additional_specs.get("stones"):
+        sentences.append(f"Stones: {additional_specs['stones'].strip()}.")
+    else:
+        sentences.append(
+            "All faceted stones are colorless white diamonds unless a "
+            "colored gem is explicitly named in a component description."
+        )
+
+    if additional_specs.get("dimensions"):
+        sentences.append(f"Proportions: {additional_specs['dimensions'].strip()}.")
+    if additional_specs.get("notes"):
+        sentences.append(f"Notes: {additional_specs['notes'].strip()}.")
+
+    sentences.append(
+        "Background is pure white RGB(255,255,255). Three-quarter angle, "
+        "polished surfaces unless the source clearly shows a matte finish, "
+        "decoration symmetric across both shoulders."
+    )
+
+    return " ".join(sentences)
+
+
+def build_correction_addendum(diagnosis: dict, attempt_number: int) -> str:
+    """Turn a validator diagnosis into a corrective directive for the image model.
+
+    Appended to the master prompt on retry passes. Uses imperative language
+    Seedream responds to, and references the prior attempt explicitly so
+    the model treats this as a correction rather than a fresh request.
+    """
+    suggestion = (diagnosis.get("suggestion") or "").strip()
+    missing = [m for m in (diagnosis.get("missing") or []) if m]
+    wrong = [w for w in (diagnosis.get("wrong") or []) if w]
+    score = diagnosis.get("score", 0)
+
+    lines = [
+        f"CORRECTION PASS (attempt {attempt_number})",
+        f"The previous attempt scored {score}/100 against the target — "
+        "below the 85 acceptance threshold. Fix the specific issues "
+        "below while keeping every other rule above intact.",
+    ]
+    if missing:
+        lines.append(
+            "MISSING components that MUST appear in this attempt: "
+            + "; ".join(missing)
+            + "."
+        )
+    if wrong:
+        lines.append(
+            "INCORRECTLY rendered components that MUST be fixed: "
+            + "; ".join(wrong)
+            + "."
+        )
+    if suggestion:
+        lines.append(f"DIRECTIVE: {suggestion}")
+    lines.append(
+        "Do NOT introduce new errors elsewhere — preserve every component "
+        "that was correct in the previous attempt."
+    )
+    return "\n".join(lines)

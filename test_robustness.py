@@ -12,12 +12,15 @@ import json
 import urllib.request
 from pathlib import Path
 
-# Load FAL_KEY from .env.example (the user keeps the real key there).
-env_path = Path(__file__).parent / ".env.example"
-for line in env_path.read_text().splitlines():
-    line = line.strip()
-    if line.startswith("FAL_KEY="):
-        os.environ["FAL_KEY"] = line.split("=", 1)[1]
+# Load FAL_KEY from a local .env file (gitignored). Falls back to whatever
+# is already in the environment so this also works when FAL_KEY is exported
+# directly in the shell.
+env_path = Path(__file__).parent / ".env"
+if env_path.exists():
+    for line in env_path.read_text().splitlines():
+        line = line.strip()
+        if line.startswith("FAL_KEY="):
+            os.environ["FAL_KEY"] = line.split("=", 1)[1]
 
 import fal_client  # noqa: E402
 
@@ -88,14 +91,16 @@ def make_image_specs(head_id: str, shank_id: str):
     ]
 
 
-def run_seedream(image_urls, prompt):
+def run_nano_banana_pro(image_urls, prompt):
     return fal_client.subscribe(
-        "fal-ai/bytedance/seedream/v4/edit",
+        "fal-ai/nano-banana-pro/edit",
         arguments={
             "image_urls": image_urls,
             "prompt": prompt,
             "num_images": 1,
-            "image_size": "auto_2K",
+            "resolution": "2K",
+            "aspect_ratio": "auto",
+            "output_format": "png",
         },
     )
 
@@ -123,7 +128,7 @@ def main():
 
         t0 = time.time()
         try:
-            result = run_seedream(image_urls, prompt)
+            result = run_nano_banana_pro(image_urls, prompt)
             url = (result.get("images") or [{}])[0].get("url")
             if url:
                 out_path = OUTPUT_DIR / f"{name}.png"

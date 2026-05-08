@@ -2,8 +2,20 @@ import streamlit as st
 import fal_client
 import os
 import time
-from prompts import build_combine_prompt
-from preprocessing import strip_background_to_white, strip_url_to_white, enrich_description
+from prompts import (
+    build_combine_prompt,
+    build_target_summary,
+    build_correction_addendum,
+)
+from preprocessing import (
+    strip_background_to_white,
+    strip_url_to_white,
+    enrich_description,
+    validate_design,
+)
+
+VALIDATION_THRESHOLD = int(os.environ.get("VALIDATION_THRESHOLD", "85"))
+MAX_VALIDATION_TRIES = int(os.environ.get("MAX_VALIDATION_TRIES", "3"))
 try:
     from dotenv import load_dotenv
     load_dotenv()
@@ -26,8 +38,8 @@ if not os.environ.get("FAL_KEY"):
         pass
 
 st.set_page_config(
-    page_title="JewelBench - Mix & Match Designer",
-    page_icon="💎",
+    page_title="JewelBench — Component Composer",
+    page_icon="https://jewelbench.ai/wp-content/uploads/2025/05/jewelbench_logo.svg",
     layout="wide",
     initial_sidebar_state="collapsed",
 )
@@ -38,24 +50,25 @@ st.markdown("""
 @import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&family=Orbitron:wght@500;600;700&display=swap');
 
 :root {
-    --bg-deep: #050B1E;
-    --bg-mid: #0B1838;
-    --bg-elevated: #142253;
-    --glass: rgba(120, 180, 255, 0.06);
-    --glass-strong: rgba(120, 180, 255, 0.10);
-    --border: rgba(120, 200, 255, 0.18);
-    --border-active: rgba(0, 212, 255, 0.55);
-    --cyan: #00D4FF;
-    --cyan-soft: #6DC5FF;
-    --cyan-deep: #0A8FCC;
-    --blue: #4A8CFF;
-    --blue-deep: #2D5BFF;
-    --purple: #6B5DFF;
-    --text-primary: #E8F4FF;
-    --text-secondary: #93B4D9;
-    --text-muted: #5A7BA0;
-    --glow-cyan: 0 0 24px rgba(0, 212, 255, 0.35);
-    --glow-soft: 0 0 60px rgba(0, 212, 255, 0.10);
+    /* Light theme — white canvas with sky-blue accents */
+    --bg-deep: #FFFFFF;
+    --bg-mid: #F8FAFC;
+    --bg-elevated: #FFFFFF;
+    --glass: rgba(255, 255, 255, 0.85);
+    --glass-strong: rgba(255, 255, 255, 0.96);
+    --border: rgba(56, 189, 248, 0.20);
+    --border-active: rgba(2, 132, 199, 0.55);
+    --cyan: #0EA5E9;        /* sky-500  primary accent */
+    --cyan-soft: #7DD3FC;   /* sky-300  hover wash      */
+    --cyan-deep: #0369A1;   /* sky-700  hover/text      */
+    --blue: #38BDF8;        /* sky-400                  */
+    --blue-deep: #0284C7;   /* sky-600                  */
+    --purple: #6366F1;      /* indigo-500 secondary     */
+    --text-primary: #0F172A;   /* slate-900 */
+    --text-secondary: #475569; /* slate-600 */
+    --text-muted: #94A3B8;     /* slate-400 */
+    --glow-cyan: 0 4px 20px rgba(56, 189, 248, 0.20);
+    --glow-soft: 0 12px 40px rgba(56, 189, 248, 0.10);
     --gold: var(--cyan);
     --gold-light: var(--cyan-soft);
     --gold-dark: var(--cyan-deep);
@@ -69,10 +82,10 @@ st.markdown("""
 
 html, body, .stApp {
     background:
-        radial-gradient(1200px 700px at 15% -10%, rgba(74, 140, 255, 0.25), transparent 60%),
-        radial-gradient(900px 600px at 100% 110%, rgba(107, 93, 255, 0.20), transparent 55%),
-        radial-gradient(700px 500px at 50% 50%, rgba(0, 212, 255, 0.06), transparent 70%),
-        linear-gradient(180deg, #050B1E 0%, #0B1838 60%, #050B1E 100%) !important;
+        radial-gradient(1200px 700px at 15% -10%, rgba(186, 230, 253, 0.55), transparent 60%),
+        radial-gradient(900px 600px at 100% 110%, rgba(199, 210, 254, 0.40), transparent 55%),
+        radial-gradient(700px 500px at 50% 50%, rgba(56, 189, 248, 0.06), transparent 70%),
+        linear-gradient(180deg, #FFFFFF 0%, #F0F9FF 60%, #FFFFFF 100%) !important;
     color: var(--text-primary);
     font-family: 'Inter', sans-serif;
 }
@@ -82,10 +95,10 @@ html, body, .stApp {
     inset: 0;
     pointer-events: none;
     background-image:
-        linear-gradient(rgba(120, 200, 255, 0.05) 1px, transparent 1px),
-        linear-gradient(90deg, rgba(120, 200, 255, 0.05) 1px, transparent 1px);
+        linear-gradient(rgba(56, 189, 248, 0.06) 1px, transparent 1px),
+        linear-gradient(90deg, rgba(56, 189, 248, 0.06) 1px, transparent 1px);
     background-size: 56px 56px;
-    mask-image: radial-gradient(ellipse at center, black 40%, transparent 80%);
+    mask-image: radial-gradient(ellipse at center, black 30%, transparent 75%);
     animation: gridDrift 40s linear infinite;
     z-index: 0;
 }
@@ -110,28 +123,24 @@ html, body, .stApp {
     width: 180px;
     height: 2px;
     background: linear-gradient(90deg, transparent, var(--cyan), transparent);
-    box-shadow: 0 0 14px rgba(0, 212, 255, 0.6);
+    box-shadow: 0 0 14px rgba(56, 189, 248, 0.45);
 }
-.jb-logo {
-    font-family: 'Orbitron', 'Space Grotesk', sans-serif;
-    font-size: 3rem;
-    font-weight: 700;
-    background: linear-gradient(135deg, #C8EBFF 0%, var(--cyan) 45%, var(--blue) 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
-    letter-spacing: 6px;
-    margin-bottom: 0.3rem;
+.jb-logo-img {
+    max-height: 64px;
+    width: auto;
+    margin-bottom: 0.5rem;
+    filter: drop-shadow(0 2px 10px rgba(56, 189, 248, 0.18));
     animation: logoPulse 4s ease-in-out infinite;
 }
 @keyframes logoPulse {
-    0%, 100% { filter: drop-shadow(0 0 12px rgba(0,212,255,0.35)); }
-    50%      { filter: drop-shadow(0 0 24px rgba(0,212,255,0.65)); }
+    0%, 100% { filter: drop-shadow(0 2px 10px rgba(56, 189, 248, 0.18)); }
+    50%      { filter: drop-shadow(0 4px 18px rgba(56, 189, 248, 0.35)); }
 }
 .jb-tagline {
     font-family: 'Space Grotesk', sans-serif;
     font-size: 0.95rem;
-    color: var(--cyan-soft);
-    font-weight: 400;
+    color: var(--cyan-deep);
+    font-weight: 500;
     letter-spacing: 5px;
     text-transform: uppercase;
 }
@@ -147,17 +156,17 @@ html, body, .stApp {
     font-weight: 700;
     font-family: 'Orbitron', sans-serif;
     font-size: 0.85rem;
-    border: 1.5px solid rgba(120, 200, 255, 0.25);
+    border: 1.5px solid rgba(56, 189, 248, 0.30);
     color: var(--text-muted);
-    background: rgba(10, 25, 60, 0.5);
-    backdrop-filter: blur(8px);
+    background: #FFFFFF;
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04);
     transition: all 0.4s cubic-bezier(.2,.8,.2,1);
 }
 .step-item.active .step-number {
     border-color: var(--cyan);
-    color: #02101F;
-    background: linear-gradient(135deg, var(--cyan-soft), var(--cyan));
-    box-shadow: 0 0 24px rgba(0, 212, 255, 0.55), inset 0 0 12px rgba(255,255,255,0.25);
+    color: #FFFFFF;
+    background: linear-gradient(135deg, var(--blue) 0%, var(--blue-deep) 100%);
+    box-shadow: 0 4px 14px rgba(56, 189, 248, 0.45);
     transform: scale(1.05);
 }
 .step-label {
@@ -169,7 +178,7 @@ html, body, .stApp {
 .step-item.active .step-label { color: var(--text-primary); }
 .step-connector {
     width: 70px; height: 1.5px;
-    background: linear-gradient(90deg, rgba(120, 200, 255, 0.1), rgba(0, 212, 255, 0.4), rgba(120, 200, 255, 0.1));
+    background: linear-gradient(90deg, rgba(56, 189, 248, 0.12), rgba(56, 189, 248, 0.50), rgba(56, 189, 248, 0.12));
     align-self: center;
 }
 
@@ -180,9 +189,7 @@ html, body, .stApp {
     margin: 2.2rem 0 0.4rem;
     font-weight: 600;
     letter-spacing: -0.01em;
-    background: linear-gradient(120deg, #FFFFFF 0%, var(--cyan-soft) 100%);
-    -webkit-background-clip: text;
-    -webkit-text-fill-color: transparent;
+    color: var(--text-primary);
 }
 .section-subtitle {
     font-size: 0.88rem;
@@ -191,13 +198,12 @@ html, body, .stApp {
     line-height: 1.6;
 }
 
-/* Glassmorphic Cards */
+/* Cards */
 .upload-card, .spec-card, .result-card, div[data-testid="stExpander"] {
-    background: var(--glass);
+    background: #FFFFFF;
     border: 1px solid var(--border);
     border-radius: 18px;
-    backdrop-filter: blur(14px);
-    -webkit-backdrop-filter: blur(14px);
+    box-shadow: 0 1px 3px rgba(15, 23, 42, 0.04), 0 4px 20px rgba(56, 189, 248, 0.06);
     transition: all 0.4s cubic-bezier(.2,.8,.2,1);
     position: relative;
     overflow: hidden;
@@ -206,16 +212,15 @@ html, body, .stApp {
 .spec-card { padding: 1.2rem; }
 .upload-card:hover, .spec-card:hover {
     border-color: var(--border-active);
-    background: var(--glass-strong);
     transform: translateY(-2px);
-    box-shadow: var(--glow-cyan), 0 12px 40px rgba(0, 30, 80, 0.4);
+    box-shadow: 0 8px 32px rgba(56, 189, 248, 0.18);
 }
 .upload-card::before {
     content: '';
     position: absolute;
     top: 0; left: 0; right: 0;
     height: 2px;
-    background: linear-gradient(90deg, transparent, var(--cyan), var(--blue), transparent);
+    background: linear-gradient(90deg, transparent, var(--cyan), var(--blue-deep), transparent);
     opacity: 0;
     transition: opacity 0.4s;
 }
@@ -225,18 +230,17 @@ html, body, .stApp {
     display: inline-flex;
     align-items: center;
     gap: 6px;
-    background: linear-gradient(135deg, rgba(0,212,255,0.10), rgba(74,140,255,0.10));
-    border: 1px solid rgba(0, 212, 255, 0.30);
+    background: linear-gradient(135deg, rgba(56, 189, 248, 0.10), rgba(99, 102, 241, 0.08));
+    border: 1px solid rgba(56, 189, 248, 0.30);
     border-radius: 20px;
     padding: 4px 14px;
     font-family: 'Space Grotesk', sans-serif;
     font-size: 0.72rem;
-    color: var(--cyan);
+    color: var(--cyan-deep);
     font-weight: 600;
     letter-spacing: 1.5px;
     text-transform: uppercase;
     margin-bottom: 1rem;
-    box-shadow: inset 0 0 10px rgba(0, 212, 255, 0.06);
 }
 .card-badge-icon { font-size: 0.9rem; }
 
@@ -244,7 +248,7 @@ html, body, .stApp {
 .spec-card-label {
     font-family: 'Space Grotesk', sans-serif;
     font-size: 0.7rem;
-    color: var(--cyan);
+    color: var(--cyan-deep);
     text-transform: uppercase;
     letter-spacing: 2.5px;
     font-weight: 700;
@@ -253,12 +257,11 @@ html, body, .stApp {
 
 /* Model Cards */
 .model-card {
-    background: var(--glass);
+    background: #FFFFFF;
     border: 1px solid var(--border);
     border-radius: 14px;
     padding: 1rem 1.2rem;
     cursor: pointer;
-    backdrop-filter: blur(10px);
     transition: all 0.4s cubic-bezier(.2,.8,.2,1);
 }
 .model-card:hover, .model-card.selected {
@@ -270,8 +273,8 @@ html, body, .stApp {
 .model-desc { font-size: 0.8rem; color: var(--text-secondary); margin-top: 2px; }
 .model-tag {
     display: inline-block;
-    background: rgba(74,140,255,0.15);
-    color: var(--blue);
+    background: rgba(56, 189, 248, 0.14);
+    color: var(--blue-deep);
     padding: 2px 8px;
     border-radius: 4px;
     font-size: 0.7rem;
@@ -281,8 +284,8 @@ html, body, .stApp {
 
 /* Buttons */
 .stButton > button {
-    background: linear-gradient(135deg, var(--cyan) 0%, var(--blue) 100%) !important;
-    color: #02101F !important;
+    background: linear-gradient(135deg, var(--blue) 0%, var(--blue-deep) 100%) !important;
+    color: #FFFFFF !important;
     border: none !important;
     padding: 0.9rem 2.5rem !important;
     font-family: 'Space Grotesk', sans-serif !important;
@@ -292,7 +295,7 @@ html, body, .stApp {
     letter-spacing: 1.2px !important;
     text-transform: uppercase !important;
     transition: all 0.3s cubic-bezier(.2,.8,.2,1) !important;
-    box-shadow: 0 6px 24px rgba(0, 212, 255, 0.30), inset 0 0 16px rgba(255,255,255,0.10) !important;
+    box-shadow: 0 6px 18px rgba(56, 189, 248, 0.32), inset 0 0 16px rgba(255,255,255,0.18) !important;
     position: relative;
     overflow: hidden;
 }
@@ -307,7 +310,7 @@ html, body, .stApp {
 }
 .stButton > button:hover {
     transform: translateY(-2px);
-    box-shadow: 0 10px 40px rgba(0, 212, 255, 0.55), inset 0 0 22px rgba(255,255,255,0.15) !important;
+    box-shadow: 0 10px 28px rgba(56, 189, 248, 0.50), inset 0 0 22px rgba(255,255,255,0.25) !important;
 }
 .stButton > button:hover::after { left: 130%; }
 .stButton > button:active { transform: translateY(0); }
@@ -315,14 +318,14 @@ button[kind="primary"], button[kind="primaryFormSubmit"] {
     animation: ctaPulse 2.4s ease-in-out infinite;
 }
 @keyframes ctaPulse {
-    0%, 100% { box-shadow: 0 6px 24px rgba(0, 212, 255, 0.30), inset 0 0 16px rgba(255,255,255,0.10); }
-    50%      { box-shadow: 0 10px 44px rgba(0, 212, 255, 0.65), inset 0 0 22px rgba(255,255,255,0.20); }
+    0%, 100% { box-shadow: 0 6px 18px rgba(56, 189, 248, 0.32), inset 0 0 16px rgba(255,255,255,0.18); }
+    50%      { box-shadow: 0 10px 32px rgba(56, 189, 248, 0.55), inset 0 0 22px rgba(255,255,255,0.25); }
 }
 
 /* Result Gallery */
 .result-card:hover {
     border-color: var(--cyan);
-    box-shadow: 0 12px 48px rgba(0, 212, 255, 0.25), var(--glow-soft);
+    box-shadow: 0 12px 40px rgba(56, 189, 248, 0.20);
     transform: translateY(-4px);
 }
 .result-label {
@@ -331,7 +334,7 @@ button[kind="primary"], button[kind="primaryFormSubmit"] {
     justify-content: space-between;
     align-items: center;
     border-top: 1px solid var(--border);
-    background: linear-gradient(180deg, transparent, rgba(0, 30, 80, 0.25));
+    background: rgba(240, 249, 255, 0.6);
 }
 .result-label span {
     font-family: 'Space Grotesk', sans-serif;
@@ -342,74 +345,81 @@ button[kind="primary"], button[kind="primaryFormSubmit"] {
 
 /* Streamlit input overrides */
 .stTextArea textarea, .stTextInput input {
-    background: rgba(10, 25, 60, 0.55) !important;
-    border: 1px solid var(--border) !important;
+    background: #FFFFFF !important;
+    border: 1px solid rgba(148, 163, 184, 0.30) !important;
     border-radius: 12px !important;
     color: var(--text-primary) !important;
     font-family: 'Inter', sans-serif !important;
     padding: 0.85rem !important;
-    backdrop-filter: blur(8px);
     transition: all 0.3s cubic-bezier(.2,.8,.2,1) !important;
 }
 .stTextArea textarea:focus, .stTextInput input:focus {
     border-color: var(--cyan) !important;
-    box-shadow: 0 0 0 3px rgba(0, 212, 255, 0.18), 0 0 24px rgba(0, 212, 255, 0.20) !important;
+    box-shadow: 0 0 0 3px rgba(56, 189, 248, 0.16), 0 0 18px rgba(56, 189, 248, 0.12) !important;
     outline: none !important;
 }
 .stSelectbox > div > div {
-    background: rgba(10, 25, 60, 0.55) !important;
-    border: 1px solid var(--border) !important;
+    background: #FFFFFF !important;
+    border: 1px solid rgba(148, 163, 184, 0.30) !important;
     border-radius: 12px !important;
     color: var(--text-primary) !important;
-    backdrop-filter: blur(8px);
 }
 div[data-testid="stFileUploader"] {
-    background: rgba(10, 25, 60, 0.4);
-    border: 1.5px dashed rgba(0, 212, 255, 0.30);
+    background: rgba(240, 249, 255, 0.55);
+    border: 1.5px dashed rgba(56, 189, 248, 0.40);
     border-radius: 14px;
     padding: 0.6rem;
-    backdrop-filter: blur(10px);
     transition: all 0.4s cubic-bezier(.2,.8,.2,1);
 }
 div[data-testid="stFileUploader"]:hover {
     border-color: var(--cyan);
-    background: rgba(0, 212, 255, 0.05);
+    background: rgba(186, 230, 253, 0.20);
     box-shadow: var(--glow-cyan);
 }
-.stSlider > div > div > div { background: var(--cyan) !important; }
+div[data-testid="stFileUploader"] * { color: var(--text-secondary) !important; }
+.stSlider > div > div > div { background: rgba(56, 189, 248, 0.22) !important; }
 .stSlider > div > div > div > div {
-    background: linear-gradient(135deg, var(--cyan), var(--blue)) !important;
-    box-shadow: 0 0 12px rgba(0, 212, 255, 0.6) !important;
+    background: linear-gradient(135deg, var(--cyan), var(--blue-deep)) !important;
+    box-shadow: 0 0 12px rgba(56, 189, 248, 0.45) !important;
 }
 .stProgress > div > div > div {
-    background: linear-gradient(90deg, var(--cyan), var(--blue), var(--purple)) !important;
-    box-shadow: 0 0 12px rgba(0, 212, 255, 0.5);
+    background: linear-gradient(90deg, var(--cyan), var(--blue-deep), var(--purple)) !important;
+    box-shadow: 0 0 10px rgba(56, 189, 248, 0.40);
 }
 .stDivider { border-color: var(--border) !important; }
 
+/* Markdown + expander text on light bg */
+.stMarkdown p, .stMarkdown li, .stMarkdown { color: var(--text-primary); }
+div[data-testid="stExpander"] summary,
+div[data-testid="stExpander"] summary p { color: var(--text-primary) !important; }
+div[data-testid="stExpander"] code, .stCode, pre {
+    background: rgba(240, 249, 255, 0.7) !important;
+    color: var(--text-primary) !important;
+    border: 1px solid var(--border);
+}
+
 /* Animations */
 @keyframes borderGlow {
-    0%, 100% { border-color: rgba(0, 212, 255, 0.30); box-shadow: 0 0 18px rgba(0,212,255,0.20); }
-    50%      { border-color: rgba(0, 212, 255, 0.85); box-shadow: 0 0 36px rgba(0,212,255,0.50); }
+    0%, 100% { border-color: rgba(56, 189, 248, 0.30); box-shadow: 0 0 18px rgba(56, 189, 248, 0.18); }
+    50%      { border-color: rgba(56, 189, 248, 0.85); box-shadow: 0 0 30px rgba(56, 189, 248, 0.40); }
 }
 .generating { animation: borderGlow 2s ease-in-out infinite; }
 
 /* Refinement Section */
 .refine-section {
     background:
-        linear-gradient(135deg, rgba(0, 212, 255, 0.07), rgba(107, 93, 255, 0.07)),
-        var(--glass);
+        linear-gradient(135deg, rgba(56, 189, 248, 0.06), rgba(99, 102, 241, 0.04)),
+        #FFFFFF;
     border: 1px solid var(--border);
     border-radius: 18px;
     padding: 1.6rem;
     margin-top: 1rem;
-    backdrop-filter: blur(14px);
     box-shadow: var(--glow-soft);
 }
 
 /* Responsive */
 @media (max-width: 768px) {
-    .jb-logo { font-size: 2rem; letter-spacing: 3px; }
+    .jb-logo-img { max-height: 48px; }
     .step-container { gap: 1rem; flex-wrap: wrap; }
     .step-connector { width: 32px; }
     .spec-grid { grid-template-columns: 1fr; }
@@ -429,31 +439,10 @@ def upload_to_fal(uploaded_file):
     content_type = uploaded_file.type or "image/png"
     return strip_background_to_white(img_bytes, content_type=content_type)
 
-    return "\n\n".join(sections)
-
-
-def generate_combined_design(image_urls, prompt):
-    """Run Seedream v4 — the only model that consistently preserves both
-    component structure and metal color on jewelry part-swaps."""
-    return [
-        {
-            "name": "Seedream v4 Edit (ByteDance)",
-            "fn": lambda: fal_client.subscribe(
-                "fal-ai/bytedance/seedream/v4/edit",
-                arguments={
-                    "image_urls": image_urls,
-                    "prompt": prompt,
-                    "num_images": 1,
-                    "image_size": "auto_2K",
-                },
-            ),
-        },
-    ]
-
 
 VIEW_PROMPTS = {
     "Top View": {
-        "model": "fal-ai/bytedance/seedream/v4/edit",
+        "model": "fal-ai/nano-banana-pro/edit",
         "prompt": (
             "Re-render this EXACT same ring design from a directly overhead "
             "top-down camera angle, looking straight down at the head and "
@@ -467,7 +456,7 @@ VIEW_PROMPTS = {
         ),
     },
     "Side Profile": {
-        "model": "fal-ai/bytedance/seedream/v4/edit",
+        "model": "fal-ai/nano-banana-pro/edit",
         "prompt": (
             "Re-render this EXACT same ring design from a pure side profile "
             "view (90-degree side view), showing the full thickness of the "
@@ -478,7 +467,7 @@ VIEW_PROMPTS = {
         ),
     },
     "Front View": {
-        "model": "fal-ai/bytedance/seedream/v4/edit",
+        "model": "fal-ai/nano-banana-pro/edit",
         "prompt": (
             "Re-render this EXACT same ring design from a head-on front "
             "camera angle, looking directly at the face of the center stone "
@@ -490,7 +479,7 @@ VIEW_PROMPTS = {
         ),
     },
     "Macro Detail": {
-        "model": "fal-ai/bytedance/seedream/v4/edit",
+        "model": "fal-ai/nano-banana-pro/edit",
         "prompt": (
             "Re-render this EXACT same ring design as an extreme macro "
             "close-up of the head and setting, filling the frame with the "
@@ -502,7 +491,7 @@ VIEW_PROMPTS = {
         ),
     },
     "Technical Drawing": {
-        "model": "fal-ai/gemini-25-flash-image/edit",
+        "model": "fal-ai/nano-banana-pro/edit",
         "prompt": (
             "Re-render this EXACT ring design as a professional jewelry "
             "technical specification drawing in pure side profile view. "
@@ -524,22 +513,23 @@ VIEW_PROMPTS = {
 }
 
 
-def generate_view(base_url, view_prompt, model="fal-ai/bytedance/seedream/v4/edit"):
+def generate_view(base_url, view_prompt, model="fal-ai/nano-banana-pro/edit"):
     """Re-render a finished design from a different camera angle.
 
     Always uses the originally generated combined design as the source so
     every view is consistent (no drift from re-using a previous view).
     """
-    args = {
-        "image_urls": [base_url],
-        "prompt": view_prompt,
-        "num_images": 1,
-    }
-    if "seedream" in model:
-        args["image_size"] = "auto_2K"
-    else:
-        args["output_format"] = "png"
-    return fal_client.subscribe(model, arguments=args)
+    return fal_client.subscribe(
+        model,
+        arguments={
+            "image_urls": [base_url],
+            "prompt": view_prompt,
+            "num_images": 1,
+            "resolution": "2K",
+            "aspect_ratio": "auto",
+            "output_format": "png",
+        },
+    )
 
 
 def extract_image_url(result):
@@ -565,8 +555,10 @@ if not os.environ.get("FAL_KEY"):
 # --- HEADER ---
 st.markdown("""
 <div class="jb-header">
-    <div class="jb-logo">JewelBench</div>
-    <div class="jb-tagline">Mix & Match Designer</div>
+    <img class="jb-logo-img"
+         src="https://jewelbench.ai/wp-content/uploads/2025/05/jewelbench_logo.svg"
+         alt="JewelBench" />
+    <div class="jb-tagline">Component Composer</div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -738,9 +730,9 @@ additional_specs = {
 
 
 # --- HOW IT WORKS ---
-st.markdown("""
+st.markdown(f"""
 <div class="section-title">AI Pipeline</div>
-<div class="section-subtitle">Step 1: References upload directly to fal.ai. Step 2: A Seedream-tuned master prompt is built with strict silhouette / finish / symmetry / color preservation rules. Step 3: Seedream v4 Edit (ByteDance) renders the combined design at 2K resolution natively from both references.</div>
+<div class="section-subtitle">Step 1: References upload to fal.ai with backgrounds stripped to white via BiRefNet v2. Step 2: Gemini 2.5 Pro enriches your terse component descriptions. Step 3: A master prompt is built with strict silhouette / finish / symmetry / color rules. Step 4: Nano Banana Pro Edit (Gemini 3 Pro Image — multi-reference compositional reasoning) renders at 2K. Step 5: Claude Sonnet 4.5 validates the output against the target description (with GPT-5 Chat as a cross-family fallback) — if the match score is below {VALIDATION_THRESHOLD}% the validator's correction is fed back and Nano Banana Pro re-renders, up to {MAX_VALIDATION_TRIES} attempts.</div>
 """, unsafe_allow_html=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
@@ -760,7 +752,7 @@ if generate_clicked:
     elif not has_descriptions:
         st.warning("Describe what component to use from each image.")
     else:
-        progress = st.progress(0, text="Phase 1/4: Cleaning reference backgrounds and uploading to fal.ai...")
+        progress = st.progress(0, text="Phase 1/5: Cleaning reference backgrounds and uploading to fal.ai...")
 
         # PHASE 1: Upload + bg-strip each reference natively
         active_specs = [s for s in image_specs if s["file"] and s["description"]]
@@ -771,16 +763,17 @@ if generate_clicked:
             st.stop()
 
         # PHASE 2: Vision-LLM enrichment of terse descriptions
-        progress.progress(0.25, text="Phase 2/4: Reading each reference image to enrich your descriptions...")
+        progress.progress(0.20, text="Phase 2/5: Reading each reference image to enrich your descriptions...")
         enriched_specs = []
         for spec, url in zip(active_specs, image_urls):
             original = spec["description"]
             enriched = enrich_description(url, original)
             enriched_specs.append({"file": spec["file"], "description": enriched, "_original": original})
 
-        # PHASE 3: Build the combination prompt
-        progress.progress(0.4, text="Phase 3/4: Building combination prompt...")
+        # PHASE 3: Build the combination prompt + the validator's target summary
+        progress.progress(0.35, text="Phase 3/5: Building combination prompt...")
         combine_prompt = build_combine_prompt(enriched_specs, additional_specs)
+        target_summary = build_target_summary(enriched_specs, additional_specs)
 
         with st.expander("Enriched Descriptions & Generation Prompt", expanded=False):
             st.markdown("**Vision-enriched descriptions** (used to build the prompt):")
@@ -788,44 +781,115 @@ if generate_clicked:
                 st.markdown(f"**Image {i+1}** — original: *“{s['_original']}”*")
                 st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;enriched: **{s['description']}**")
             st.markdown("---")
-            st.markdown("**Master prompt sent to Seedream:**")
+            st.markdown("**Validator target description:**")
+            st.code(target_summary, language="text")
+            st.markdown("**Master prompt sent to Nano Banana Pro:**")
             st.code(combine_prompt, language="text")
 
-        # PHASE 4: Generate via multi-image edit models
-        progress.progress(0.55, text="Phase 4/4: Generating combined designs...")
-        strategies = generate_combined_design(image_urls, combine_prompt)
+        # PHASE 4 + 5: Generate, then self-validate with retry up to MAX_VALIDATION_TRIES.
+        # On each attempt below the 85 threshold we feed the validator's diagnosis
+        # back into the prompt as a correction directive. We always keep the
+        # best-scoring attempt so the user never sees nothing.
         results = []
         strategy_names = []
+        diagnoses = []
+        attempts_log = []
 
-        if strategies:
-            for si, strategy in enumerate(strategies):
-                progress.progress(
-                    0.55 + (si + 1) / (len(strategies) * 3),
-                    text=f"Phase 4/4: Rendering variation {si+1}/{len(strategies)} ({strategy['name']})...",
+        best_url = None
+        best_score = -1
+        best_diagnosis = None
+        current_prompt = combine_prompt
+
+        for attempt in range(1, MAX_VALIDATION_TRIES + 1):
+            phase_base = 0.45 + (attempt - 1) * (0.5 / MAX_VALIDATION_TRIES)
+            progress.progress(
+                phase_base,
+                text=f"Phase 4/5: Rendering attempt {attempt}/{MAX_VALIDATION_TRIES} with Nano Banana Pro...",
+            )
+            try:
+                result = fal_client.subscribe(
+                    "fal-ai/nano-banana-pro/edit",
+                    arguments={
+                        "image_urls": image_urls,
+                        "prompt": current_prompt,
+                        "num_images": 1,
+                        "resolution": "2K",
+                        "aspect_ratio": "auto",
+                        "output_format": "png",
+                    },
                 )
-                try:
-                    result = strategy["fn"]()
-                    url = extract_image_url(result)
-                    if url:
-                        # Post-strip the output background so we always end up
-                        # on RGB(255,255,255) regardless of Seedream variance.
-                        try:
-                            url = strip_url_to_white(url)
-                        except Exception:
-                            pass  # keep original URL if post-strip fails
-                        results.append(url)
-                        strategy_names.append(strategy["name"])
-                except Exception as e:
-                    st.warning(f"Strategy '{strategy['name']}' failed: {e}")
+            except Exception as e:
+                st.warning(f"Attempt {attempt} failed: {e}")
+                attempts_log.append({"attempt": attempt, "error": str(e)})
+                continue
+
+            url = extract_image_url(result)
+            if not url:
+                attempts_log.append({"attempt": attempt, "error": "no image returned"})
+                continue
+
+            try:
+                url = strip_url_to_white(url)
+            except Exception:
+                pass  # keep original URL if post-strip fails
+
+            progress.progress(
+                phase_base + (0.5 / MAX_VALIDATION_TRIES) * 0.6,
+                text=f"Phase 5/5: AI validating attempt {attempt} against target description...",
+            )
+            diagnosis = validate_design(url, target_summary)
+            score = diagnosis.get("score", 0)
+            attempts_log.append({"attempt": attempt, "score": score, "url": url})
+
+            if score > best_score:
+                best_url = url
+                best_score = score
+                best_diagnosis = diagnosis
+
+            if score >= VALIDATION_THRESHOLD:
+                break
+
+            # Below threshold and we still have retries: append the corrective
+            # directive to the prompt and try again.
+            if attempt < MAX_VALIDATION_TRIES:
+                current_prompt = (
+                    combine_prompt
+                    + "\n\n"
+                    + build_correction_addendum(diagnosis, attempt + 1)
+                )
+
+        if best_url:
+            results.append(best_url)
+            strategy_names.append("Nano Banana Pro Edit (Gemini 3 Pro Image)")
+            diagnoses.append(best_diagnosis or {})
 
         progress.progress(1.0, text="Generation complete")
         time.sleep(0.5)
         progress.empty()
 
         if results:
-            st.markdown("""
-            <div class="section-title">Generated Designs</div>
-            <div class="section-subtitle">Each variation combines your reference images into a single new piece</div>
+            tries_used = len(attempts_log)
+            passed = best_score >= VALIDATION_THRESHOLD
+            badge_color = "#22D67A" if passed else "#FFB547"
+            status_text = (
+                f"Passed self-validation in {tries_used} "
+                f"{'try' if tries_used == 1 else 'tries'}"
+                if passed
+                else f"Best of {tries_used} {'try' if tries_used == 1 else 'tries'} "
+                     f"(below {VALIDATION_THRESHOLD}% threshold)"
+            )
+
+            st.markdown(f"""
+            <div class="section-title">Generated Design</div>
+            <div class="section-subtitle">
+                <span style="display:inline-block;padding:3px 10px;border-radius:10px;
+                             background:rgba(34,214,122,0.10);border:1px solid {badge_color};
+                             color:{badge_color};font-weight:700;font-size:0.78rem;
+                             letter-spacing:1px;text-transform:uppercase;">
+                    Match: {best_score}%
+                </span>
+                &nbsp;&nbsp;{status_text}
+            </div>
             """, unsafe_allow_html=True)
 
             result_cols = st.columns(min(len(results), 4), gap="medium")
@@ -846,8 +910,34 @@ if generate_clicked:
                         unsafe_allow_html=True,
                     )
 
+            with st.expander("AI Self-Validation Report", expanded=not passed):
+                for entry in attempts_log:
+                    if "error" in entry:
+                        st.markdown(f"**Attempt {entry['attempt']}** — failed: {entry['error']}")
+                    else:
+                        st.markdown(
+                            f"**Attempt {entry['attempt']}** — score "
+                            f"**{entry.get('score', 0)}/100**"
+                        )
+                if best_diagnosis:
+                    if best_diagnosis.get("missing"):
+                        st.markdown("**Missing from final output:**")
+                        for m in best_diagnosis["missing"]:
+                            st.markdown(f"- {m}")
+                    if best_diagnosis.get("wrong"):
+                        st.markdown("**Rendered incorrectly in final output:**")
+                        for w in best_diagnosis["wrong"]:
+                            st.markdown(f"- {w}")
+                    if best_diagnosis.get("suggestion"):
+                        st.markdown(f"**Validator's suggestion:** {best_diagnosis['suggestion']}")
+                    if best_diagnosis.get("_model"):
+                        st.caption(f"Reviewed by {best_diagnosis['_model']}")
+                    if best_diagnosis.get("_error"):
+                        st.caption(f"Validator note: {best_diagnosis['_error']}")
+
             st.session_state["last_results"] = results
             st.session_state["last_prompt"] = combine_prompt
+            st.session_state["last_target_summary"] = target_summary
             st.session_state["last_image_urls"] = image_urls
             st.session_state["views"] = {}
         else:
@@ -970,12 +1060,14 @@ if st.session_state.get("last_results"):
             with st.spinner("Regenerating with modifications..."):
                 try:
                     result = fal_client.subscribe(
-                        "fal-ai/bytedance/seedream/v4/edit",
+                        "fal-ai/nano-banana-pro/edit",
                         arguments={
                             "image_urls": image_urls,
                             "prompt": refined_prompt,
                             "num_images": 1,
-                            "image_size": "auto_2K",
+                            "resolution": "2K",
+                            "aspect_ratio": "auto",
+                            "output_format": "png",
                         },
                     )
                     url = extract_image_url(result)
@@ -998,7 +1090,7 @@ if st.session_state.get("last_results"):
 # --- FOOTER ---
 st.markdown("<br><br>", unsafe_allow_html=True)
 st.markdown("""
-<div style="text-align:center;padding:2rem 0;border-top:1px solid rgba(201,168,76,0.1);">
+<div style="text-align:center;padding:2rem 0;border-top:1px solid var(--border);">
     <span style="color:var(--text-muted);font-size:0.75rem;letter-spacing:2px;">
         POWERED BY JEWELBENCH AI
     </span>
