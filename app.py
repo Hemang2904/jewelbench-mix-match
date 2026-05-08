@@ -14,7 +14,7 @@ from preprocessing import (
     validate_design,
 )
 
-VALIDATION_THRESHOLD = int(os.environ.get("VALIDATION_THRESHOLD", "85"))
+VALIDATION_THRESHOLD = int(os.environ.get("VALIDATION_THRESHOLD", "80"))
 MAX_VALIDATION_TRIES = int(os.environ.get("MAX_VALIDATION_TRIES", "3"))
 try:
     from dotenv import load_dotenv
@@ -732,7 +732,7 @@ additional_specs = {
 # --- HOW IT WORKS ---
 st.markdown(f"""
 <div class="section-title">AI Pipeline</div>
-<div class="section-subtitle">Step 1: References upload to fal.ai with backgrounds stripped to white via BiRefNet v2. Step 2: Gemini 2.5 Pro enriches your terse component descriptions. Step 3: A master prompt is built with strict silhouette / finish / symmetry / color rules. Step 4: Nano Banana Pro Edit (Gemini 3 Pro Image — multi-reference compositional reasoning) renders at 2K. Step 5: Claude Sonnet 4.5 validates the output against the target description (with GPT-5 Chat as a cross-family fallback) — if the match score is below {VALIDATION_THRESHOLD}% the validator's correction is fed back and Nano Banana Pro re-renders, up to {MAX_VALIDATION_TRIES} attempts.</div>
+<div class="section-subtitle">Step 1: References upload to fal.ai with backgrounds stripped to white via BiRefNet v2. Step 2: Gemini 2.5 Pro enriches your terse component descriptions. Step 3: A master prompt is built with strict silhouette / finish / symmetry / color rules. Step 4: Nano Banana Pro Edit (Gemini 3 Pro Image — multi-reference compositional reasoning) renders at 2K. Step 5: Claude Sonnet 4.5 scores the output against the target description on a calibrated rubric (80% = production-ready) — if below threshold, the validator's per-component diagnosis is fed back as a surgical correction (preserving what was already correct) and Nano Banana Pro re-renders, up to {MAX_VALIDATION_TRIES} attempts. Early-stops if a retry makes things worse.</div>
 """, unsafe_allow_html=True)
 
 st.markdown("<br>", unsafe_allow_html=True)
@@ -799,6 +799,7 @@ if generate_clicked:
         best_score = -1
         best_diagnosis = None
         current_prompt = combine_prompt
+        prev_score = -1
 
         for attempt in range(1, MAX_VALIDATION_TRIES + 1):
             phase_base = 0.45 + (attempt - 1) * (0.5 / MAX_VALIDATION_TRIES)
@@ -848,6 +849,14 @@ if generate_clicked:
 
             if score >= VALIDATION_THRESHOLD:
                 break
+
+            # Early-stop: if a retry made things worse (score dropped),
+            # the corrective directive isn't helping. Stop here and use
+            # the best result so far rather than spending more API calls.
+            if attempt > 1 and score < prev_score:
+                attempts_log[-1]["regressed"] = True
+                break
+            prev_score = score
 
             # Below threshold and we still have retries: append the corrective
             # directive to the prompt and try again.
@@ -915,19 +924,29 @@ if generate_clicked:
                     if "error" in entry:
                         st.markdown(f"**Attempt {entry['attempt']}** — failed: {entry['error']}")
                     else:
+                        regressed = " — *stopped (score regressed)*" if entry.get("regressed") else ""
                         st.markdown(
                             f"**Attempt {entry['attempt']}** — score "
-                            f"**{entry.get('score', 0)}/100**"
+                            f"**{entry.get('score', 0)}/100**{regressed}"
                         )
                 if best_diagnosis:
+                    if best_diagnosis.get("per_component"):
+                        st.markdown("**Per-component scores (final output):**")
+                        for component, comp_score in best_diagnosis["per_component"].items():
+                            bar = "█" * (comp_score // 10) + "░" * (10 - comp_score // 10)
+                            st.markdown(f"- `{bar}` **{comp_score}/100** — {component}")
+                    if best_diagnosis.get("correct"):
+                        st.markdown("**Rendered correctly:**")
+                        for c in best_diagnosis["correct"]:
+                            st.markdown(f"- ✓ {c}")
                     if best_diagnosis.get("missing"):
                         st.markdown("**Missing from final output:**")
                         for m in best_diagnosis["missing"]:
-                            st.markdown(f"- {m}")
+                            st.markdown(f"- ✗ {m}")
                     if best_diagnosis.get("wrong"):
                         st.markdown("**Rendered incorrectly in final output:**")
                         for w in best_diagnosis["wrong"]:
-                            st.markdown(f"- {w}")
+                            st.markdown(f"- ⚠ {w}")
                     if best_diagnosis.get("suggestion"):
                         st.markdown(f"**Validator's suggestion:** {best_diagnosis['suggestion']}")
                     if best_diagnosis.get("_model"):
@@ -1053,38 +1072,143 @@ if st.session_state.get("last_results"):
                 f"except where the refinement explicitly overrides them."
             )
 
+            # Update the validator's target with the refinement so the score
+            # reflects what the user actually asked for, not the original spec.
+            base_target = st.session_state.get("last_target_summary", "")
+            refinement_target = (
+                f"{base_target}\n\nADDITIONAL REFINEMENT REQUESTED: "
+                f"{refinement.strip()}"
+            )
+
             image_urls = st.session_state.get("last_image_urls") or [
                 upload_to_fal(s["file"]) for s in image_specs if s["file"]
             ]
 
-            with st.spinner("Regenerating with modifications..."):
-                try:
-                    result = fal_client.subscribe(
-                        "fal-ai/nano-banana-pro/edit",
-                        arguments={
-                            "image_urls": image_urls,
-                            "prompt": refined_prompt,
-                            "num_images": 1,
-                            "resolution": "2K",
-                            "aspect_ratio": "auto",
-                            "output_format": "png",
-                        },
-                    )
+            r_best_url = None
+            r_best_score = -1
+            r_best_diagnosis = None
+            r_attempts_log = []
+            r_current_prompt = refined_prompt
+            r_prev_score = -1
+
+            with st.spinner(f"Regenerating + validating (up to {MAX_VALIDATION_TRIES} tries)..."):
+                for attempt in range(1, MAX_VALIDATION_TRIES + 1):
+                    try:
+                        result = fal_client.subscribe(
+                            "fal-ai/nano-banana-pro/edit",
+                            arguments={
+                                "image_urls": image_urls,
+                                "prompt": r_current_prompt,
+                                "num_images": 1,
+                                "resolution": "2K",
+                                "aspect_ratio": "auto",
+                                "output_format": "png",
+                            },
+                        )
+                    except Exception as e:
+                        r_attempts_log.append({"attempt": attempt, "error": str(e)})
+                        continue
+
                     url = extract_image_url(result)
-                    if url:
-                        st.markdown('<div class="section-title">Refined Design</div>', unsafe_allow_html=True)
-                        col1, col2, col3 = st.columns([1, 2, 1])
-                        with col2:
-                            st.image(url, width="stretch")
+                    if not url:
+                        r_attempts_log.append({"attempt": attempt, "error": "no image returned"})
+                        continue
+
+                    try:
+                        url = strip_url_to_white(url)
+                    except Exception:
+                        pass
+
+                    diagnosis = validate_design(url, refinement_target)
+                    score = diagnosis.get("score", 0)
+                    r_attempts_log.append({"attempt": attempt, "score": score, "url": url})
+
+                    if score > r_best_score:
+                        r_best_url = url
+                        r_best_score = score
+                        r_best_diagnosis = diagnosis
+
+                    if score >= VALIDATION_THRESHOLD:
+                        break
+                    if attempt > 1 and score < r_prev_score:
+                        r_attempts_log[-1]["regressed"] = True
+                        break
+                    r_prev_score = score
+
+                    if attempt < MAX_VALIDATION_TRIES:
+                        r_current_prompt = (
+                            refined_prompt
+                            + "\n\n"
+                            + build_correction_addendum(diagnosis, attempt + 1)
+                        )
+
+            if r_best_url:
+                r_passed = r_best_score >= VALIDATION_THRESHOLD
+                r_badge_color = "#22D67A" if r_passed else "#FFB547"
+                r_tries_used = len(r_attempts_log)
+                r_status_text = (
+                    f"Passed in {r_tries_used} {'try' if r_tries_used == 1 else 'tries'}"
+                    if r_passed
+                    else f"Best of {r_tries_used} {'try' if r_tries_used == 1 else 'tries'} "
+                         f"(below {VALIDATION_THRESHOLD}% threshold)"
+                )
+
+                st.markdown(f"""
+                <div class="section-title">Refined Design</div>
+                <div class="section-subtitle">
+                    <span style="display:inline-block;padding:3px 10px;border-radius:10px;
+                                 background:rgba(34,214,122,0.10);border:1px solid {r_badge_color};
+                                 color:{r_badge_color};font-weight:700;font-size:0.78rem;
+                                 letter-spacing:1px;text-transform:uppercase;">
+                        Match: {r_best_score}%
+                    </span>
+                    &nbsp;&nbsp;{r_status_text}
+                </div>
+                """, unsafe_allow_html=True)
+
+                col1, col2, col3 = st.columns([1, 2, 1])
+                with col2:
+                    st.image(r_best_url, width="stretch")
+                    st.markdown(
+                        f'<div style="text-align:center;margin-top:8px;">'
+                        f'<a href="{r_best_url}" target="_blank" '
+                        f'style="color:var(--cyan-deep);font-weight:600;text-decoration:none;">'
+                        f'Download Full Resolution</a></div>',
+                        unsafe_allow_html=True,
+                    )
+
+                with st.expander("Refinement Self-Validation Report", expanded=not r_passed):
+                    for entry in r_attempts_log:
+                        if "error" in entry:
+                            st.markdown(f"**Attempt {entry['attempt']}** — failed: {entry['error']}")
+                        else:
+                            regressed = " — *stopped (score regressed)*" if entry.get("regressed") else ""
                             st.markdown(
-                                f'<div style="text-align:center;margin-top:8px;">'
-                                f'<a href="{url}" target="_blank" '
-                                f'style="color:var(--cyan);font-weight:600;text-decoration:none;">'
-                                f'Download Full Resolution</a></div>',
-                                unsafe_allow_html=True,
+                                f"**Attempt {entry['attempt']}** — score "
+                                f"**{entry.get('score', 0)}/100**{regressed}"
                             )
-                except Exception as e:
-                    st.error(f"Regeneration failed: {str(e)}")
+                    if r_best_diagnosis:
+                        if r_best_diagnosis.get("per_component"):
+                            st.markdown("**Per-component scores:**")
+                            for component, comp_score in r_best_diagnosis["per_component"].items():
+                                bar = "█" * (comp_score // 10) + "░" * (10 - comp_score // 10)
+                                st.markdown(f"- `{bar}` **{comp_score}/100** — {component}")
+                        if r_best_diagnosis.get("correct"):
+                            st.markdown("**Rendered correctly:**")
+                            for c in r_best_diagnosis["correct"]:
+                                st.markdown(f"- ✓ {c}")
+                        if r_best_diagnosis.get("missing"):
+                            st.markdown("**Missing:**")
+                            for m in r_best_diagnosis["missing"]:
+                                st.markdown(f"- ✗ {m}")
+                        if r_best_diagnosis.get("wrong"):
+                            st.markdown("**Rendered incorrectly:**")
+                            for w in r_best_diagnosis["wrong"]:
+                                st.markdown(f"- ⚠ {w}")
+                        if r_best_diagnosis.get("suggestion"):
+                            st.markdown(f"**Validator's suggestion:** {r_best_diagnosis['suggestion']}")
+            else:
+                st.error("Refinement failed — no image was generated. Check your FAL_KEY and try again.")
 
 
 # --- FOOTER ---

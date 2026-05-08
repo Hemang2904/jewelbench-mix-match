@@ -197,7 +197,7 @@ def validate_design(
 ) -> dict:
     """Score how faithfully the generated jewelry image matches the target description.
 
-    Returns {score: int 0-100, missing: list[str], wrong: list[str], suggestion: str}.
+    Returns {score, correct, missing, wrong, per_component, suggestion}.
     On any LLM/parse failure returns score=0 with a non-fatal note so the caller
     can still surface the result and decide whether to retry.
     """
@@ -205,31 +205,58 @@ def validate_design(
 
     prompt = (
         "You are a senior jewelry-design QA reviewer. Compare the attached "
-        "rendered ring image against the TARGET DESCRIPTION below and decide "
-        "how faithfully the render reproduces it.\n\n"
+        "rendered ring image against the TARGET DESCRIPTION below and "
+        "score how faithfully the render reproduces it.\n\n"
         f"TARGET DESCRIPTION:\n{target_description}\n\n"
-        "Score on a 0-100 scale where 100 = every named component is "
-        "present with correct shape, metal color, prong/stone count, "
-        "decoration extent, and surface finish; 85+ = minor cosmetic drift "
-        "only; <85 = at least one component is missing, swapped, "
-        "miscolored, simplified, or embellished beyond the description.\n\n"
-        "Treat these as hard failures (force score < 85): wrong metal "
-        "color on any component, missing component from any reference, "
-        "shank pavé/stones added or removed vs. description, halo or "
-        "prong count changed, two rings instead of one, colored gem "
-        "rendered where the description says white diamond, or a tinted/"
-        "non-white background.\n\n"
+        "SCORING RUBRIC — score on a 0-100 scale anchored at:\n"
+        "  100 = pixel-perfect to the target description.\n"
+        "   90 = production-ready: every named component is present and "
+        "recognizably correct in shape, metal color, prong/stone count, "
+        "and decoration extent. Cosmetic drift only (lighting, slight "
+        "polish, minor proportion).\n"
+        "   80 = acceptable to ship: every named component is present "
+        "and structurally correct; 1-2 secondary attributes drift "
+        "(slight metal color shift, decoration extent slightly reduced, "
+        "minor surface finish change). THIS IS THE PASSING BAR.\n"
+        "   70 = mostly right with one real defect: one component is "
+        "noticeably simplified or one secondary attribute is clearly "
+        "wrong, but the piece is still recognizable as the target.\n"
+        "   55 = a structural problem: one named component is missing "
+        "or replaced, OR the wrong metal color on a major component, OR "
+        "decoration is significantly reduced (full-length pavé became "
+        "shoulder-only).\n"
+        "   40 = multiple structural problems or two rings shown.\n"
+        "   20 or below = the output is unrelated to the target.\n\n"
+        "ANTI-OVER-PENALIZATION — do NOT force a low score for any of "
+        "these alone, since the pipeline post-processes them:\n"
+        "  - background tint (a separate stage forces pure white)\n"
+        "  - tiny aspect / framing differences\n"
+        "  - mild lighting or polish variation\n"
+        "  - JPEG compression artifacts\n"
+        "Score these as cosmetic drift, not as structural failure.\n\n"
+        "BE FAIR — if every named component from the target is present "
+        "and recognizably correct, the score MUST be at least 80, even "
+        "if minor polish or proportion drifts. Only drop below 80 when "
+        "a real structural defect exists (missing component, wrong "
+        "metal on a major component, wrong stone color, two rings, "
+        "halo / prong count off, decoration extent significantly "
+        "reduced).\n\n"
         "Return ONLY a single JSON object — no prose, no code fences — "
         "with this exact shape:\n"
         "{\n"
         '  "score": <integer 0-100>,\n'
+        '  "correct": [<short strings naming attributes the render '
+        "reproduced faithfully — these MUST be preserved on retry>],\n"
         '  "missing": [<short strings naming components from the target '
         "that are absent or barely visible>],\n"
         '  "wrong":   [<short strings naming components that are present '
         "but rendered incorrectly, with what is wrong>],\n"
+        '  "per_component": {<component name from target>: '
+        "<integer 0-100>, ...},\n"
         '  "suggestion": "<one imperative sentence telling the image '
         "model exactly what to fix on the next attempt — name the "
-        "component, the current defect, and the correct target state>\"\n"
+        "component, the current defect, the correct target state, and "
+        "where in the ring it should appear (head/shank/halo/etc.)>\"\n"
         "}"
     )
 
@@ -254,8 +281,10 @@ def validate_design(
     if not raw or "_raw" not in raw:
         return {
             "score": 0,
+            "correct": [],
             "missing": [],
             "wrong": [],
+            "per_component": {},
             "suggestion": "",
             "_error": (raw or {}).get("_error", "validator unavailable"),
             "_model": chosen,
@@ -265,8 +294,10 @@ def validate_design(
     if not parsed:
         return {
             "score": 0,
+            "correct": [],
             "missing": [],
             "wrong": [],
+            "per_component": {},
             "suggestion": "",
             "_error": "validator returned non-JSON",
             "_raw": raw["_raw"][:400],
@@ -279,10 +310,21 @@ def validate_design(
         score = 0
     score = max(0, min(100, score))
 
+    per_component_raw = parsed.get("per_component") or {}
+    per_component: dict = {}
+    if isinstance(per_component_raw, dict):
+        for k, v in per_component_raw.items():
+            try:
+                per_component[str(k)] = max(0, min(100, int(v)))
+            except (TypeError, ValueError):
+                continue
+
     return {
         "score": score,
+        "correct": list(parsed.get("correct") or []),
         "missing": list(parsed.get("missing") or []),
         "wrong": list(parsed.get("wrong") or []),
+        "per_component": per_component,
         "suggestion": (parsed.get("suggestion") or "").strip(),
         "_model": raw["_model"],
     }

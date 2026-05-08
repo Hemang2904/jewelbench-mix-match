@@ -408,37 +408,50 @@ def build_target_summary(image_specs, additional_specs):
 def build_correction_addendum(diagnosis: dict, attempt_number: int) -> str:
     """Turn a validator diagnosis into a corrective directive for the image model.
 
-    Appended to the master prompt on retry passes. Uses imperative language
-    Seedream responds to, and references the prior attempt explicitly so
-    the model treats this as a correction rather than a fresh request.
+    Appended to the master prompt on retry passes. The key idea is to tell
+    the model both what to PRESERVE (so we don't regress on what was
+    already right) and what to FIX, with the validator's own suggestion
+    as the headline directive.
     """
     suggestion = (diagnosis.get("suggestion") or "").strip()
+    correct = [c for c in (diagnosis.get("correct") or []) if c]
     missing = [m for m in (diagnosis.get("missing") or []) if m]
     wrong = [w for w in (diagnosis.get("wrong") or []) if w]
     score = diagnosis.get("score", 0)
 
     lines = [
-        f"CORRECTION PASS (attempt {attempt_number})",
-        f"The previous attempt scored {score}/100 against the target — "
-        "below the 85 acceptance threshold. Fix the specific issues "
-        "below while keeping every other rule above intact.",
+        f"CORRECTION PASS (attempt {attempt_number}) — TARGETED FIX, NOT A FRESH RENDER",
+        f"The previous attempt scored {score}/100. Treat that attempt "
+        "as the working baseline: keep everything that was correct, "
+        "fix only the specific defects listed below, and do not "
+        "regenerate from scratch.",
     ]
+    if correct:
+        lines.append(
+            "PRESERVE these — they were rendered correctly and MUST NOT "
+            "change in this attempt: "
+            + "; ".join(correct)
+            + "."
+        )
     if missing:
         lines.append(
-            "MISSING components that MUST appear in this attempt: "
+            "ADD these components — they are absent from the previous "
+            "attempt and MUST appear in this attempt: "
             + "; ".join(missing)
             + "."
         )
     if wrong:
         lines.append(
-            "INCORRECTLY rendered components that MUST be fixed: "
+            "FIX these — present but rendered incorrectly, must be "
+            "corrected to match the target: "
             + "; ".join(wrong)
             + "."
         )
     if suggestion:
-        lines.append(f"DIRECTIVE: {suggestion}")
+        lines.append(f"PRIMARY DIRECTIVE: {suggestion}")
     lines.append(
-        "Do NOT introduce new errors elsewhere — preserve every component "
-        "that was correct in the previous attempt."
+        "Critical: do NOT introduce new defects in the parts that were "
+        "already correct. This is a surgical fix on a working baseline, "
+        "not a fresh design pass."
     )
     return "\n".join(lines)
