@@ -164,7 +164,15 @@ def build_combine_prompt(image_specs, additional_specs):
         "- Do NOT add brushed, hammered, knurled, satin, matte, sandblasted, "
         "wood-grain, or any textured finish that is not in the source.\n"
         "- Do NOT add milgrain edges, engraving lines, or hatching that is "
-        "not in the source.",
+        "not in the source.\n"
+        "- Do NOT add 3D structural ornament along the shank — specifically "
+        "rope, cable, twist, braid, herringbone, spiral, beaded, ridged, "
+        "fluted, scalloped, or carved-channel patterns — UNLESS that exact "
+        "ornament is clearly visible on the source shank being extracted. "
+        "If the source shank is a flat or domed pavé band with no central "
+        "ornament, the output shank is a flat or domed pavé band with NO "
+        "central ornament. Inventing a rope/cable spine down the middle of "
+        "a pavé shank is a hard failure.",
 
         "MANUFACTURABILITY (CRITICAL)\n"
         "- The output must be a PHYSICALLY REALIZABLE piece of jewelry that "
@@ -242,6 +250,11 @@ def build_combine_prompt(image_specs, additional_specs):
         "the same arrangement.\n"
         "- Do NOT change band thickness, shoulder profile, prong count, "
         "prong shape, or stone size.\n"
+        "- Do NOT invent a rope / cable / twist / braid / herringbone / "
+        "spiral / fluted spine running along the shank. If the source shank "
+        "is pure pavé with no such ornament, the output shank is pure pavé "
+        "with no such ornament — even if it 'looks more ornate' or 'feels "
+        "more like jewelry' to add one.\n"
         "- Do NOT redesign, stylize, or reinterpret — copy.",
 
         "STONE COLOR / CUT DISAMBIGUATION (CRITICAL)\n"
@@ -322,6 +335,9 @@ def build_combine_prompt(image_specs, additional_specs):
         f"(petals, halos, prong count, band profile)? It MUST.\n"
         f"- Are all surfaces in the output finished the same way as their "
         f"source (polished defaults to polished, no added brushed/matte)? They MUST be.\n"
+        f"- Has any rope/cable/twist/braid/herringbone/spiral spine been "
+        f"invented on the shank that is NOT visible on the source shank? "
+        f"It MUST NOT — flag this as a hard defect if present.\n"
         f"- Are decorative elements (pavé, prongs, side stones) symmetric "
         f"across both shoulders / both sides? They MUST be.\n"
         f"- Does decoration cover the SAME EXTENT as in the source (full-length "
