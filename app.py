@@ -81,13 +81,18 @@ st.markdown("""
    Global reset & background
    ════════════════════════════════════════════════════ */
 html, body, [data-testid="stAppViewContainer"], .stApp {
-    background: #F8FBFF !important;
+    background:
+        radial-gradient(ellipse 900px 600px at 10% 0%, rgba(186,230,253,0.45) 0%, transparent 60%),
+        radial-gradient(ellipse 700px 500px at 95% 80%, rgba(199,210,254,0.30) 0%, transparent 55%),
+        #F8FBFF !important;
     font-family: 'Inter', sans-serif !important;
     color: var(--text-primary) !important;
 }
 [data-testid="stAppViewContainer"] > section > div {
-    padding-top: 1rem !important;
+    padding-top: 0 !important;
 }
+/* Ensure content clears the fixed 56px navbar */
+.main .block-container { padding-top: 72px !important; }
 #MainMenu, footer, header { visibility: hidden !important; }
 .stDeployButton { display: none !important; }
 
@@ -379,15 +384,20 @@ button[kind="primary"] { animation: ctaPulse 2.8s ease-in-out infinite; }
 }
 
 @media (max-width: 768px) {
-    .jb-logo-img { max-height: 44px; }
-    .step-container { flex-wrap: wrap; gap: 4px; border-radius: 16px; }
+    .jb-hero-title { font-size: 2rem !important; }
+    .jb-hero-sub { font-size: 0.9rem !important; }
+    .jb-steps { flex-wrap: wrap; border-radius: 16px; }
     .pipeline-wrap { grid-template-columns: 1fr 1fr; }
+    .jb-nav-product { display: none; }
+    .block-container, [data-testid="block-container"] { padding: 72px 1rem 3rem !important; }
 }
 
 /* ── Max-width content container ── */
-.block-container {
+.block-container,
+[data-testid="block-container"],
+[data-testid="stAppViewBlockContainer"] {
     max-width: 1140px !important;
-    padding: 0 2rem 4rem !important;
+    padding: 80px 2.5rem 5rem !important;
     margin: 0 auto !important;
 }
 
@@ -1001,7 +1011,6 @@ if generate_clicked and _ready:
     if results:
         tries_used = len(attempts_log)
         passed = best_score >= VALIDATION_THRESHOLD
-        badge_color = "#22D67A" if passed else "#FFB547"
         status_text = (
             f"Passed self-validation in {tries_used} {'try' if tries_used == 1 else 'tries'}"
             if passed
@@ -1086,7 +1095,6 @@ if generate_clicked and _ready:
                         st.markdown(f"- ⚠ {w}")
                 if best_diagnosis.get("suggestion"):
                     st.markdown(f"**Validator's suggestion:** {best_diagnosis['suggestion']}")
-                pass
                 if best_diagnosis.get("_error"):
                     st.caption(f"Validator note: {best_diagnosis['_error']}")
 
@@ -1138,11 +1146,10 @@ if st.session_state.get("last_bom") and st.session_state.get("last_bom_costs"):
     )
     _sku = "JBR-" + hashlib.sha1(_sku_seed.encode()).hexdigest()[:8].upper()
     _ts_str = datetime.datetime.fromtimestamp(_gold["ts"]).strftime("%H:%M")
-    _live_tag = "LIVE" if _gold.get("live_gold") and _gold.get("live_fx") else "FALLBACK"
     _rate_line = (
-        f"{_live_tag} · Gold ${_gold['usd_per_oz_xau']:,.2f}/oz · "
+        f"Gold ${_gold['usd_per_oz_xau']:,.2f}/oz · "
         f"₹{_gold['per_g'].get('18k_inr', 0):,.0f}/g 18k · "
-        f"USD/INR {_gold['usd_inr']:,.2f} · fetched {_ts_str} · source: {_gold['source']}"
+        f"USD/INR {_gold['usd_inr']:,.2f} · as of {_ts_str}"
     )
 
     st.markdown("<br>", unsafe_allow_html=True)
@@ -1565,7 +1572,7 @@ if st.session_state.get("last_results"):
                     else f"Best of {r_tries_used} {'try' if r_tries_used == 1 else 'tries'} (below {VALIDATION_THRESHOLD}%)"
                 )
 
-                st.markdown('<div class="section-title">Refined Design</div>', unsafe_allow_html=True)
+                st.markdown('<div class="section-title"><span class="sec-num">✦</span> Refined Design</div>', unsafe_allow_html=True)
                 _rscore_class = "pass" if r_passed else "warn"
                 _rring_color = "#22D67A" if r_passed else "#FFB547"
                 _rcirc = 2 * 3.14159 * 40
