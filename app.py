@@ -1,7 +1,6 @@
 import streamlit as st
 import fal_client
 import os
-import time
 from prompts import (
     build_combine_prompt,
     build_target_summary,
@@ -91,44 +90,12 @@ html, body, [data-testid="stAppViewContainer"], .stApp {
 [data-testid="stAppViewContainer"] > section > div {
     padding-top: 0 !important;
 }
-/* Ensure content clears the fixed 56px navbar */
-.main .block-container { padding-top: 72px !important; }
 #MainMenu, footer, header { visibility: hidden !important; }
 .stDeployButton { display: none !important; }
 
 /* ── Sidebar (hidden) ── */
 [data-testid="stSidebar"] { display: none !important; }
 
-/* ── Header (legacy — kept for compatibility) ── */
-.jb-logo-img {
-    max-height: 56px; width: auto; margin-bottom: 0.6rem;
-    filter: drop-shadow(0 2px 8px rgba(14,165,233,0.20));
-}
-
-/* ── Step Indicators ── */
-.step-container {
-    display: flex; justify-content: center; align-items: center;
-    gap: 0; margin: 1.6rem 0; padding: 0;
-    background: #FFFFFF; border: 1px solid var(--border);
-    border-radius: 50px; width: fit-content; margin-left: auto; margin-right: auto;
-    padding: 6px 8px; box-shadow: 0 2px 12px rgba(14,165,233,0.08);
-}
-.step-item { display: flex; align-items: center; gap: 8px; padding: 6px 16px; border-radius: 40px; transition: all 0.3s ease; }
-.step-item.active { background: linear-gradient(135deg, var(--blue), var(--blue-deep)); }
-.step-item.done { background: rgba(34,197,94,0.10); }
-.step-number {
-    width: 26px; height: 26px; border-radius: 50%;
-    display: flex; align-items: center; justify-content: center;
-    font-weight: 700; font-family: 'Space Grotesk', sans-serif; font-size: 0.78rem;
-    background: rgba(14,165,233,0.12); color: var(--text-muted);
-    transition: all 0.3s ease;
-}
-.step-item.active .step-number { background: rgba(255,255,255,0.25); color: #FFFFFF; }
-.step-item.done .step-number { background: rgba(34,197,94,0.20); color: #15803d; }
-.step-label { font-family: 'Space Grotesk', sans-serif; font-size: 0.78rem; font-weight: 600; color: var(--text-muted); white-space: nowrap; }
-.step-item.active .step-label { color: #FFFFFF; }
-.step-item.done .step-label { color: #15803d; }
-.step-connector { width: 20px; height: 1px; background: var(--border); }
 
 /* ── Section Titles ── */
 .section-title {
@@ -375,7 +342,6 @@ button[kind="primary"] { animation: ctaPulse 2.8s ease-in-out infinite; }
 .stMarkdown p, .stMarkdown li { color: var(--text-primary) !important; }
 
 /* ── Refinement section ── */
-.refine-header { font-family: 'Space Grotesk', sans-serif; font-size: 1.25rem; font-weight: 700; color: var(--text-primary); margin-bottom: 0.3rem; }
 .refine-sub { font-size: 0.83rem; color: var(--text-secondary); margin-bottom: 0.8rem; }
 
 /* ── Progress ── */
@@ -426,7 +392,6 @@ button[kind="primary"] { animation: ctaPulse 2.8s ease-in-out infinite; }
 }
 .jb-nav-pill.ok { background: rgba(34,197,94,0.10); color: #15803d; border: 1px solid rgba(34,197,94,0.28); }
 .jb-nav-pill.err { background: rgba(239,68,68,0.08); color: #b91c1c; border: 1px solid rgba(239,68,68,0.25); }
-.jb-nav-spacer { height: 56px; }
 
 /* ── Hero ── */
 .jb-hero {
@@ -643,7 +608,6 @@ st.markdown(f"""
     {'<span class="jb-nav-pill ok">● Engine Ready</span>' if fal_ok else '<span class="jb-nav-pill err">● Engine Offline</span>'}
   </div>
 </nav>
-<div class="jb-nav-spacer"></div>
 """, unsafe_allow_html=True)
 
 
@@ -932,7 +896,6 @@ if generate_clicked and _ready:
         # Phase 4+5
         results = []
         strategy_names = []
-        diagnoses = []
         attempts_log = []
         best_url = None
         best_score = -1
@@ -999,7 +962,6 @@ if generate_clicked and _ready:
         if best_url:
             results.append(best_url)
             strategy_names.append("JewelBench AI Render")
-            diagnoses.append(best_diagnosis or {})
             passed = best_score >= VALIDATION_THRESHOLD
             gen_status.update(
                 label=f"✓ Generation complete — score {best_score}/100" + (" (passed)" if passed else " (best attempt)"),
