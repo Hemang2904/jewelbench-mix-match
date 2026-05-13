@@ -91,52 +91,13 @@ html, body, [data-testid="stAppViewContainer"], .stApp {
 #MainMenu, footer, header { visibility: hidden !important; }
 .stDeployButton { display: none !important; }
 
-/* ── Sidebar ── */
-[data-testid="stSidebar"] {
-    background: #FFFFFF !important;
-    border-right: 1px solid rgba(14,165,233,0.15) !important;
-    box-shadow: 4px 0 20px rgba(14,165,233,0.06) !important;
-}
-[data-testid="stSidebar"] > div { padding-top: 1.5rem !important; }
-[data-testid="stSidebar"] h3 {
-    font-family: 'Space Grotesk', sans-serif !important;
-    font-size: 0.68rem !important; font-weight: 700 !important;
-    letter-spacing: 2.5px !important; text-transform: uppercase !important;
-    color: var(--cyan-deep) !important; margin: 1.2rem 0 0.5rem !important;
-}
-.sidebar-key-ok {
-    display: flex; align-items: center; gap: 8px; padding: 8px 12px;
-    border-radius: 10px; background: rgba(34,197,94,0.08);
-    border: 1px solid rgba(34,197,94,0.30);
-    font-size: 0.8rem; font-weight: 600; color: #15803d; margin-bottom: 0.8rem;
-}
-.sidebar-key-err {
-    display: flex; align-items: center; gap: 8px; padding: 8px 12px;
-    border-radius: 10px; background: rgba(239,68,68,0.07);
-    border: 1px solid rgba(239,68,68,0.25);
-    font-size: 0.8rem; font-weight: 600; color: #b91c1c; margin-bottom: 0.8rem;
-}
-.sidebar-stat {
-    display: flex; justify-content: space-between; align-items: center;
-    padding: 6px 0; border-bottom: 1px solid rgba(14,165,233,0.10);
-    font-size: 0.8rem; color: var(--text-secondary);
-}
-.sidebar-stat-val { font-weight: 600; color: var(--text-primary); font-family: 'Space Grotesk', sans-serif; }
+/* ── Sidebar (hidden) ── */
+[data-testid="stSidebar"] { display: none !important; }
 
-/* ── Header ── */
-.jb-header { text-align: center; padding: 2rem 0 1.2rem; position: relative; }
-.jb-header::after {
-    content: ''; position: absolute; bottom: 0; left: 50%; transform: translateX(-50%);
-    width: 120px; height: 1.5px;
-    background: linear-gradient(90deg, transparent, var(--cyan), transparent);
-}
+/* ── Header (legacy — kept for compatibility) ── */
 .jb-logo-img {
     max-height: 56px; width: auto; margin-bottom: 0.6rem;
     filter: drop-shadow(0 2px 8px rgba(14,165,233,0.20));
-}
-.jb-tagline {
-    font-family: 'Space Grotesk', sans-serif; font-size: 0.78rem;
-    color: var(--cyan-deep); font-weight: 600; letter-spacing: 6px; text-transform: uppercase;
 }
 
 /* ── Step Indicators ── */
@@ -422,6 +383,121 @@ button[kind="primary"] { animation: ctaPulse 2.8s ease-in-out infinite; }
     .step-container { flex-wrap: wrap; gap: 4px; border-radius: 16px; }
     .pipeline-wrap { grid-template-columns: 1fr 1fr; }
 }
+
+/* ── Max-width content container ── */
+.block-container {
+    max-width: 1140px !important;
+    padding: 0 2rem 4rem !important;
+    margin: 0 auto !important;
+}
+
+/* ── Fixed Navbar ── */
+.jb-nav {
+    position: fixed; top: 0; left: 0; right: 0; z-index: 1000;
+    height: 56px; background: rgba(255,255,255,0.92);
+    backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+    border-bottom: 1px solid rgba(14,165,233,0.14);
+    display: flex; align-items: center; justify-content: space-between;
+    padding: 0 2rem;
+    box-shadow: 0 1px 12px rgba(14,165,233,0.08);
+}
+.jb-nav-brand { display: flex; align-items: center; gap: 12px; }
+.jb-nav-logo { height: 28px; width: auto; }
+.jb-nav-product {
+    font-family: 'Space Grotesk', sans-serif; font-size: 0.82rem;
+    font-weight: 700; color: var(--cyan-deep); letter-spacing: 1px;
+    text-transform: uppercase; padding-left: 12px;
+    border-left: 1px solid rgba(14,165,233,0.25);
+}
+.jb-nav-right { display: flex; align-items: center; gap: 12px; }
+.jb-nav-pill {
+    font-family: 'Space Grotesk', sans-serif; font-size: 0.75rem; font-weight: 600;
+    padding: 4px 12px; border-radius: 20px; letter-spacing: 0.5px;
+}
+.jb-nav-pill.ok { background: rgba(34,197,94,0.10); color: #15803d; border: 1px solid rgba(34,197,94,0.28); }
+.jb-nav-pill.err { background: rgba(239,68,68,0.08); color: #b91c1c; border: 1px solid rgba(239,68,68,0.25); }
+.jb-nav-spacer { height: 56px; }
+
+/* ── Hero ── */
+.jb-hero {
+    text-align: center; padding: 3.5rem 1rem 2.5rem;
+    max-width: 680px; margin: 0 auto;
+}
+.jb-hero-eyebrow {
+    font-family: 'Space Grotesk', sans-serif; font-size: 0.72rem; font-weight: 700;
+    letter-spacing: 3px; text-transform: uppercase; color: var(--cyan);
+    margin-bottom: 1rem;
+}
+.jb-hero-title {
+    font-family: 'Space Grotesk', sans-serif; font-size: 3rem; font-weight: 800;
+    line-height: 1.1; color: var(--text-primary); margin: 0 0 1rem; letter-spacing: -0.03em;
+}
+.jb-hero-accent { color: var(--cyan-deep); }
+.jb-hero-sub {
+    font-size: 1rem; color: var(--text-secondary); line-height: 1.7;
+    margin: 0 0 1.5rem; max-width: 540px; margin-left: auto; margin-right: auto;
+}
+.jb-hero-pills { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; }
+.jb-pill {
+    font-family: 'Space Grotesk', sans-serif; font-size: 0.72rem; font-weight: 600;
+    padding: 5px 14px; border-radius: 20px; letter-spacing: 0.5px;
+    background: #FFFFFF; border: 1px solid rgba(14,165,233,0.22);
+    color: var(--cyan-deep);
+    box-shadow: 0 1px 4px rgba(14,165,233,0.08);
+}
+
+/* ── Steps ── */
+.jb-steps {
+    display: flex; align-items: center; justify-content: center;
+    gap: 0; margin: 0 auto 2.5rem; width: fit-content;
+    background: #FFFFFF; border: 1px solid rgba(14,165,233,0.16);
+    border-radius: 50px; padding: 5px 6px;
+    box-shadow: 0 2px 10px rgba(14,165,233,0.07);
+}
+.jb-step { display: flex; align-items: center; gap: 7px; padding: 6px 16px; border-radius: 40px; transition: all 0.25s ease; }
+.jb-step.active { background: linear-gradient(135deg, var(--blue), var(--blue-deep)); }
+.jb-step.done { background: rgba(34,197,94,0.10); }
+.jb-step-num {
+    width: 22px; height: 22px; border-radius: 50%; display: flex; align-items: center; justify-content: center;
+    font-family: 'Space Grotesk', sans-serif; font-size: 0.72rem; font-weight: 800;
+    background: rgba(14,165,233,0.12); color: var(--text-muted); flex-shrink: 0;
+}
+.jb-step.active .jb-step-num { background: rgba(255,255,255,0.22); color: #fff; }
+.jb-step.done .jb-step-num { background: rgba(34,197,94,0.18); color: #15803d; }
+.jb-step-label { font-family: 'Space Grotesk', sans-serif; font-size: 0.78rem; font-weight: 600; color: var(--text-muted); white-space: nowrap; }
+.jb-step.active .jb-step-label { color: #fff; }
+.jb-step.done .jb-step-label { color: #15803d; }
+.jb-step-line { width: 24px; height: 1px; background: rgba(14,165,233,0.18); flex-shrink: 0; }
+
+/* ── Section numbers ── */
+.sec-num {
+    font-family: 'Space Grotesk', sans-serif; font-size: 0.72rem; font-weight: 800;
+    color: var(--cyan); letter-spacing: 1px; margin-right: 10px;
+    background: rgba(14,165,233,0.10); border: 1px solid rgba(14,165,233,0.22);
+    padding: 2px 8px; border-radius: 6px; vertical-align: middle;
+}
+
+/* ── Section divider ── */
+.section-divider {
+    height: 1px; background: linear-gradient(90deg, transparent, rgba(14,165,233,0.18), transparent);
+    margin: 2.5rem 0;
+}
+
+/* ── Footer ── */
+.jb-footer {
+    margin-top: 4rem; padding: 2rem 0;
+    border-top: 1px solid rgba(14,165,233,0.12);
+    background: #FFFFFF;
+}
+.jb-footer-inner {
+    display: flex; flex-direction: column; align-items: center; gap: 1rem;
+}
+.jb-footer-logo { height: 28px; opacity: 0.7; }
+.jb-footer-links {
+    display: flex; align-items: center; gap: 10px; flex-wrap: wrap; justify-content: center;
+    font-size: 0.78rem; color: var(--text-muted); font-family: 'Space Grotesk', sans-serif;
+}
+.jb-footer-dot { color: rgba(14,165,233,0.40); }
 </style>
 """, unsafe_allow_html=True)
 
@@ -539,81 +615,47 @@ def extract_image_url(result):
     return None
 
 
-# ── SIDEBAR ──────────────────────────────────────────────────────────────────
+# ── ENGINE CHECK & SETTINGS ──────────────────────────────────────────────────
 
-with st.sidebar:
-    st.markdown(
-        '<img src="https://jewelbench.ai/wp-content/uploads/2025/05/jewelbench_logo.svg" '
-        'style="width:100%;max-width:160px;display:block;margin:0 auto 1rem;" />',
-        unsafe_allow_html=True,
-    )
+fal_ok = bool(os.environ.get("FAL_KEY"))
+VALIDATION_THRESHOLD = _ENV_VALIDATION_THRESHOLD
+MAX_VALIDATION_TRIES = _ENV_MAX_VALIDATION_TRIES
 
-    fal_ok = bool(os.environ.get("FAL_KEY"))
-    if fal_ok:
-        st.markdown(
-            '<div class="sidebar-key-ok">✓ &nbsp;FAL_KEY connected</div>',
-            unsafe_allow_html=True,
-        )
-    else:
-        st.markdown(
-            '<div class="sidebar-key-err">✗ &nbsp;FAL_KEY missing</div>',
-            unsafe_allow_html=True,
-        )
+# ── NAVBAR ───────────────────────────────────────────────────────────────────
 
-    st.markdown("### Settings")
-    VALIDATION_THRESHOLD = st.slider(
-        "Validation threshold (%)",
-        min_value=60, max_value=95, value=_ENV_VALIDATION_THRESHOLD, step=5,
-        help="Score required for a render to pass without retrying",
-    )
-    MAX_VALIDATION_TRIES = st.slider(
-        "Max retry attempts",
-        min_value=1, max_value=5, value=_ENV_MAX_VALIDATION_TRIES,
-        help="How many times to retry a render that scores below the threshold",
-    )
-
-    st.markdown("### Session")
-    _imgs_loaded = sum(
-        1 for i in range(5)
-        if st.session_state.get(f"img_{i}") is not None
-    )
-    _has_results = bool(st.session_state.get("last_results"))
-    _views_done = len(st.session_state.get("views", {}))
-
-    st.markdown(
-        f'<div class="sidebar-stat"><span>References uploaded</span>'
-        f'<span class="sidebar-stat-val">{_imgs_loaded}</span></div>'
-        f'<div class="sidebar-stat"><span>Design generated</span>'
-        f'<span class="sidebar-stat-val">{"Yes" if _has_results else "No"}</span></div>'
-        f'<div class="sidebar-stat"><span>Views rendered</span>'
-        f'<span class="sidebar-stat-val">{_views_done} / 5</span></div>',
-        unsafe_allow_html=True,
-    )
-
-    st.markdown("<br>", unsafe_allow_html=True)
-    if st.button("Clear Session", use_container_width=True):
-        for key in list(st.session_state.keys()):
-            del st.session_state[key]
-        st.rerun()
+st.markdown(f"""
+<nav class="jb-nav">
+  <div class="jb-nav-brand">
+    <img src="https://jewelbench.ai/wp-content/uploads/2025/05/jewelbench_logo.svg" class="jb-nav-logo" alt="JewelBench"/>
+    <span class="jb-nav-product">Component Composer</span>
+  </div>
+  <div class="jb-nav-right">
+    {'<span class="jb-nav-pill ok">● Engine Ready</span>' if fal_ok else '<span class="jb-nav-pill err">● Engine Offline</span>'}
+  </div>
+</nav>
+<div class="jb-nav-spacer"></div>
+""", unsafe_allow_html=True)
 
 
-# ── KEY CHECK ──────────────────────────────────────────────────────────────
+# ── ENGINE CHECK ───────────────────────────────────────────────────────────
 
 if not fal_ok:
-    st.error(
-        "**FAL_KEY not found.** Add it in Streamlit Cloud: "
-        "Manage app → Settings → Secrets → `FAL_KEY = \"your-key\"`"
-    )
+    st.error("JewelBench Engine not configured. Please contact your administrator.")
 
 
-# ── HEADER ─────────────────────────────────────────────────────────────────
+# ── HERO ────────────────────────────────────────────────────────────────────
 
 st.markdown("""
-<div class="jb-header">
-    <img class="jb-logo-img"
-         src="https://jewelbench.ai/wp-content/uploads/2025/05/jewelbench_logo.svg"
-         alt="JewelBench" />
-    <div class="jb-tagline">Component Composer</div>
+<div class="jb-hero">
+  <div class="jb-hero-eyebrow">JewelBench AI Studio</div>
+  <h1 class="jb-hero-title">Mix &amp; Match<br><span class="jb-hero-accent">Jewelry Components</span></h1>
+  <p class="jb-hero-sub">Upload reference images, describe the elements you want combined, and let JewelBench Engine generate a production-ready design at 2K resolution.</p>
+  <div class="jb-hero-pills">
+    <span class="jb-pill">✦ 2K Resolution</span>
+    <span class="jb-pill">✦ AI Validated</span>
+    <span class="jb-pill">✦ 5-Stage Pipeline</span>
+    <span class="jb-pill">✦ Auto Bill of Materials</span>
+  </div>
 </div>
 """, unsafe_allow_html=True)
 
@@ -626,43 +668,23 @@ if any(st.session_state.get(f"img_{i}") for i in range(5)):
 if st.session_state.get("last_results"):
     current_step = 3
 
-def _step_cls(n):
-    if n < current_step:
-        return "done"
-    if n == current_step:
-        return "active"
-    return ""
-
-def _step_num(n):
-    if n < current_step:
-        return "✓"
-    return str(n)
-
-steps_html = f"""
-<div class="step-container">
-    <div class="step-item {_step_cls(1)}">
-        <div class="step-number">{_step_num(1)}</div>
-        <div class="step-label">Upload References</div>
-    </div>
-    <div class="step-connector"></div>
-    <div class="step-item {_step_cls(2)}">
-        <div class="step-number">{_step_num(2)}</div>
-        <div class="step-label">Specify & Configure</div>
-    </div>
-    <div class="step-connector"></div>
-    <div class="step-item {_step_cls(3)}">
-        <div class="step-number">{_step_num(3)}</div>
-        <div class="step-label">Generate & Refine</div>
-    </div>
-</div>
-"""
+step_labels = ["Upload References", "Specify & Configure", "Generate & Refine"]
+step_icons = ["01", "02", "03"]
+steps_html = '<div class="jb-steps">'
+for i, (num, label) in enumerate(zip(step_icons, step_labels), 1):
+    cls = "done" if i < current_step else ("active" if i == current_step else "")
+    icon = "✓" if i < current_step else num
+    steps_html += f'<div class="jb-step {cls}"><span class="jb-step-num">{icon}</span><span class="jb-step-label">{label}</span></div>'
+    if i < 3:
+        steps_html += '<div class="jb-step-line"></div>'
+steps_html += '</div>'
 st.markdown(steps_html, unsafe_allow_html=True)
 
 
 # ── STEP 1: UPLOAD REFERENCES ────────────────────────────────────────────────
 
 st.markdown("""
-<div class="section-title">Reference Images</div>
+<div class="section-title"><span class="sec-num">01</span> Reference Images</div>
 <div class="section-subtitle">Upload jewelry images and describe which component to extract from each</div>
 """, unsafe_allow_html=True)
 
@@ -717,8 +739,9 @@ for i in range(num_images):
 
 # ── STEP 2: SPECIFICATIONS ───────────────────────────────────────────────────
 
+st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
 st.markdown("""
-<div class="section-title">Design Specifications</div>
+<div class="section-title"><span class="sec-num">02</span> Design Specifications</div>
 <div class="section-subtitle">Define metal, stones, dimensions, and special requirements</div>
 """, unsafe_allow_html=True)
 
@@ -778,8 +801,9 @@ additional_specs = {"metal": metal, "stones": stones, "dimensions": dimensions, 
 
 # ── AI PIPELINE VISUALIZATION ────────────────────────────────────────────────
 
+st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
 st.markdown("""
-<div class="section-title">AI Pipeline</div>
+<div class="section-title"><span class="sec-num">03</span> AI Pipeline</div>
 <div class="section-subtitle">Five-stage process — from raw uploads to a validated, production-ready design</div>
 """, unsafe_allow_html=True)
 
@@ -821,6 +845,7 @@ st.markdown(f"""
 
 # ── PRE-FLIGHT CHECKLIST ─────────────────────────────────────────────────────
 
+st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
 _n_images = sum(1 for s in image_specs if s["file"])
 _n_descs = sum(1 for s in image_specs if s["description"].strip())
 _check_images = _n_images >= 2
@@ -836,7 +861,7 @@ def _chk(ok, label):
 st.markdown(f"""
 <div class="preflight-wrap">
   <div class="preflight-title">Ready to generate?</div>
-  {_chk(_check_key, "FAL_KEY connected")}
+  {_chk(_check_key, "JewelBench Engine connected")}
   {_chk(_check_images, f"At least 2 reference images ({_n_images} uploaded)")}
   {_chk(_check_descs, f"At least 2 component descriptions ({_n_descs} filled)")}
 </div>
@@ -983,8 +1008,9 @@ if generate_clicked and _ready:
             else f"Best of {tries_used} {'try' if tries_used == 1 else 'tries'} (below {VALIDATION_THRESHOLD}% threshold)"
         )
 
+        st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
         st.markdown("""
-        <div class="section-title">Generated Design</div>
+        <div class="section-title"><span class="sec-num">04</span> Generated Design</div>
         """, unsafe_allow_html=True)
 
         _score_class = "pass" if passed else "warn"
@@ -1095,7 +1121,7 @@ if generate_clicked and _ready:
 
         st.toast("Design generated successfully!", icon="✨")
     else:
-        st.error("No images were generated. Check your FAL_KEY and try again.")
+        st.error("Generation failed. Please try again or contact support.")
 
 
 # ── BILL OF MATERIALS ─────────────────────────────────────────────────────────
@@ -1120,8 +1146,9 @@ if st.session_state.get("last_bom") and st.session_state.get("last_bom_costs"):
     )
 
     st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
     st.markdown(
-        f'<div class="section-title">Bill of Materials</div>'
+        f'<div class="section-title"><span class="sec-num">05</span> Bill of Materials</div>'
         f'<div class="section-subtitle">{_rate_line}</div>',
         unsafe_allow_html=True,
     )
@@ -1321,9 +1348,9 @@ elif st.session_state.get("last_bom_error"):
 if st.session_state.get("last_results"):
     base_design_url = st.session_state["last_results"][0]
 
-    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
     st.markdown("""
-    <div class="section-title">Additional Views</div>
+    <div class="section-title"><span class="sec-num">06</span> Additional Views</div>
     <div class="section-subtitle">Re-render the generated design from different camera angles. Generate all 5 in parallel (~60 s, ~$0.30) or pick individual views to retry.</div>
     """, unsafe_allow_html=True)
 
@@ -1425,11 +1452,11 @@ if st.session_state.get("last_results"):
 # ── REFINEMENT ────────────────────────────────────────────────────────────────
 
 if st.session_state.get("last_results"):
-    st.markdown("<br>", unsafe_allow_html=True)
+    st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
 
     with st.container(border=True):
         st.markdown(
-            '<div class="refine-header">Refine Your Design</div>'
+            '<div class="section-title"><span class="sec-num">07</span> Refine Your Design</div>'
             '<div class="refine-sub">Describe modifications — the original references and specs are preserved unless you override them</div>',
             unsafe_allow_html=True,
         )
@@ -1608,16 +1635,22 @@ if st.session_state.get("last_results"):
                             st.markdown(f"**Validator's suggestion:** {r_best_diagnosis['suggestion']}")
                 st.toast("Refined design ready!", icon="✨")
             else:
-                st.error("Refinement failed — no image was generated. Check your FAL_KEY and try again.")
+                st.error("Refinement failed. Please try again.")
 
 
 # ── FOOTER ────────────────────────────────────────────────────────────────────
 
-st.markdown("<br><br>", unsafe_allow_html=True)
 st.markdown("""
-<div style="text-align:center;padding:2rem 0;border-top:1px solid var(--border);">
-    <span style="color:var(--text-muted);font-size:0.75rem;letter-spacing:2px;">
-        POWERED BY JEWELBENCH AI
-    </span>
+<div class="jb-footer">
+  <div class="jb-footer-inner">
+    <img src="https://jewelbench.ai/wp-content/uploads/2025/05/jewelbench_logo.svg" class="jb-footer-logo" alt="JewelBench"/>
+    <div class="jb-footer-links">
+      <span>Component Composer</span>
+      <span class="jb-footer-dot">·</span>
+      <span>Powered by JewelBench Engine</span>
+      <span class="jb-footer-dot">·</span>
+      <span>© 2026 JewelBench AI</span>
+    </div>
+  </div>
 </div>
 """, unsafe_allow_html=True)
