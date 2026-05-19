@@ -48,18 +48,12 @@ def build_combine_prompt(image_specs, additional_specs):
     for i, spec in enumerate(active_specs):
         n = i + 1
         desc = extracted_descs[i]
-        other_descs = [d for j, d in enumerate(extracted_descs) if j != i]
         ignore_clause = (
             f"DO NOT use, reference, or borrow from any other part of Image {n} "
-            f"— in particular, IGNORE Image {n}'s "
-            + (
-                ", ".join(other_descs)
-                if other_descs
-                else "other components"
-            )
-            + ", structural features (cutouts, gaps, openings, bezel housings, "
-            "tension brackets), surface decoration, and stones. Those parts "
-            "must NOT appear in the output."
+            f"— extract ONLY the {desc} from Image {n}. Ignore every other "
+            f"component visible in Image {n} (the head, shank, halo, gallery, "
+            "prongs, side stones, and any structural or decorative feature that "
+            f"is NOT part of the {desc}). Those parts MUST NOT appear in the output."
         )
         ref_lines.append(
             f"- From Image {n}: incorporate the {desc} into the new ring "

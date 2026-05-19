@@ -841,40 +841,123 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-_gen_cols = st.columns([1, 4, 1])
-with _gen_cols[1]:
-    generate_clicked = st.button(
-        "✨ GENERATE COMBINED DESIGN",
-        use_container_width=True,
-        type="primary",
-        disabled=not _ready,
-    )
+_enrich_pending = st.session_state.get("enrichment_pending")
+
+if not _enrich_pending:
+    _gen_cols = st.columns([1, 4, 1])
+    with _gen_cols[1]:
+        generate_clicked = st.button(
+            "✨ GENERATE COMBINED DESIGN",
+            use_container_width=True,
+            type="primary",
+            disabled=not _ready,
+        )
+else:
+    generate_clicked = False
 
 
-# ── GENERATION ───────────────────────────────────────────────────────────────
+# ── PHASE A: ENRICH ──────────────────────────────────────────────────────────
 
 if generate_clicked and _ready:
     active_specs = [s for s in image_specs if s["file"] and s["description"]]
 
-    with st.status("Running AI pipeline...", expanded=True) as gen_status:
-
-        # Phase 1
+    with st.status("Analyzing references — phases 1 & 2 of 5...", expanded=True) as prep_status:
         st.write("🧹 Phase 1/5 — Cleaning reference backgrounds...")
         try:
             image_urls = [upload_to_fal(s["file"]) for s in active_specs]
         except Exception as e:
-            gen_status.update(label="Upload failed", state="error")
+            prep_status.update(label="Upload failed", state="error")
             st.error(f"Reference upload failed: {e}")
             st.stop()
         st.write(f"✓ {len(image_urls)} image(s) cleaned and uploaded")
 
-        # Phase 2
         st.write("🔍 Phase 2/5 — Reading reference images to enrich descriptions...")
         enriched_specs = []
         for spec, url in zip(active_specs, image_urls):
             enriched = enrich_description(url, spec["description"])
-            enriched_specs.append({"file": spec["file"], "description": enriched, "_original": spec["description"]})
-        st.write(f"✓ Descriptions enriched for {len(enriched_specs)} reference(s)")
+            enriched_specs.append({
+                "file": spec["file"],
+                "description": enriched,
+                "_original": spec["description"],
+            })
+        st.write(f"✓ {len(enriched_specs)} description(s) enriched — review below before rendering")
+        prep_status.update(
+            label="✓ Analysis complete — review descriptions below",
+            state="complete",
+        )
+
+    st.session_state["enrichment_pending"] = {
+        "image_urls": image_urls,
+        "enriched_specs": enriched_specs,
+    }
+    st.rerun()
+
+
+# ── ENRICHMENT REVIEW ─────────────────────────────────────────────────────────
+
+confirm_clicked = False
+confirmed_image_urls = None
+confirmed_enriched_specs = None
+
+if _enrich_pending:
+    st.markdown('<div class="section-divider"></div>', unsafe_allow_html=True)
+    st.markdown("""
+<div class="section-title"><span class="sec-num">03b</span> Review AI Descriptions</div>
+<div class="section-subtitle">The AI has read your reference images. Edit any description before rendering — precision here is the single biggest lever for output quality.</div>
+""", unsafe_allow_html=True)
+
+    _ep_specs = _enrich_pending["enriched_specs"]
+    _review_cols = st.columns(len(_ep_specs), gap="medium")
+    for i, spec in enumerate(_ep_specs):
+        with _review_cols[i]:
+            with st.container(border=True):
+                st.markdown(
+                    f'<div class="card-badge"><span>{badge_icons[i]}</span> Reference {i+1}</div>',
+                    unsafe_allow_html=True,
+                )
+                if spec["file"]:
+                    st.image(spec["file"], use_container_width=True)
+                changed = spec["description"] != spec["_original"]
+                if changed:
+                    st.caption(f"Original: *{spec['_original']}*  →  AI enriched")
+                else:
+                    st.caption("Unchanged from your description")
+                st.text_area(
+                    f"Description {i+1}",
+                    value=spec["description"],
+                    key=f"enriched_edit_{i}",
+                    height=90,
+                    label_visibility="collapsed",
+                )
+
+    _confirm_cols = st.columns([1, 3, 1])
+    with _confirm_cols[0]:
+        if st.button("← Re-upload", use_container_width=True):
+            del st.session_state["enrichment_pending"]
+            st.rerun()
+    with _confirm_cols[1]:
+        confirm_clicked = st.button(
+            "✅ CONFIRM & RENDER",
+            use_container_width=True,
+            type="primary",
+        )
+
+    if confirm_clicked:
+        confirmed_image_urls = _enrich_pending["image_urls"]
+        confirmed_enriched_specs = [
+            {**spec, "description": st.session_state.get(f"enriched_edit_{i}", spec["description"])}
+            for i, spec in enumerate(_ep_specs)
+        ]
+        del st.session_state["enrichment_pending"]
+
+
+# ── GENERATION ───────────────────────────────────────────────────────────────
+
+if confirmed_image_urls and confirmed_enriched_specs:
+    image_urls = confirmed_image_urls
+    enriched_specs = confirmed_enriched_specs
+
+    with st.status("Running AI pipeline...", expanded=True) as gen_status:
 
         # Phase 3
         st.write("📝 Phase 3/5 — Building master combination prompt...")
@@ -882,11 +965,15 @@ if generate_clicked and _ready:
         target_summary = build_target_summary(enriched_specs, additional_specs)
         st.write("✓ Prompt built")
 
-        with st.expander("View enriched descriptions & prompt", expanded=False):
-            st.markdown("**Vision-enriched descriptions:**")
+        with st.expander("View descriptions & prompt", expanded=False):
+            st.markdown("**Final descriptions used for rendering:**")
             for i, s in enumerate(enriched_specs):
-                st.markdown(f"**Image {i+1}** — original: *\"{s['_original']}\"*")
-                st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;enriched: **{s['description']}**")
+                orig = s.get("_original", "")
+                if orig and orig != s["description"]:
+                    st.markdown(f"**Image {i+1}** — original: *\"{orig}\"*")
+                    st.markdown(f"&nbsp;&nbsp;&nbsp;&nbsp;final: **{s['description']}**")
+                else:
+                    st.markdown(f"**Image {i+1}** — **{s['description']}**")
             st.markdown("---")
             st.markdown("**Validator target description:**")
             st.code(target_summary, language="text")
@@ -902,6 +989,7 @@ if generate_clicked and _ready:
         best_diagnosis = None
         current_prompt = combine_prompt
         prev_score = -1
+        correction_addenda = []
 
         for attempt in range(1, MAX_VALIDATION_TRIES + 1):
             st.write(f"✨ Phase 4/5 — Rendering attempt {attempt}/{MAX_VALIDATION_TRIES} at 2K...")
@@ -955,9 +1043,8 @@ if generate_clicked and _ready:
 
             if attempt < MAX_VALIDATION_TRIES:
                 st.write(f"↻ Score {score}% — below threshold {VALIDATION_THRESHOLD}%, refining prompt...")
-                current_prompt = (
-                    combine_prompt + "\n\n" + build_correction_addendum(diagnosis, attempt + 1)
-                )
+                correction_addenda.append(build_correction_addendum(diagnosis, attempt + 1))
+                current_prompt = combine_prompt + "\n\n" + "\n\n".join(correction_addenda)
 
         if best_url:
             results.append(best_url)
@@ -1465,6 +1552,7 @@ if st.session_state.get("last_results"):
             r_attempts_log = []
             r_current_prompt = refined_prompt
             r_prev_score = -1
+            r_correction_addenda = []
 
             with st.status("Regenerating with refinements...", expanded=True) as r_status:
                 for attempt in range(1, MAX_VALIDATION_TRIES + 1):
@@ -1516,9 +1604,8 @@ if st.session_state.get("last_results"):
 
                     if attempt < MAX_VALIDATION_TRIES:
                         st.write(f"↻ Score {score}% — refining prompt for next attempt...")
-                        r_current_prompt = (
-                            refined_prompt + "\n\n" + build_correction_addendum(diagnosis, attempt + 1)
-                        )
+                        r_correction_addenda.append(build_correction_addendum(diagnosis, attempt + 1))
+                        r_current_prompt = refined_prompt + "\n\n" + "\n\n".join(r_correction_addenda)
 
                 r_passed = r_best_score >= VALIDATION_THRESHOLD
                 r_status.update(
